@@ -9,3 +9,4 @@ run/
 *.rvin
 trace.jsonl
 stats.csv
+.claude/

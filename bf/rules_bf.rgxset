@@ -1,0 +1,56 @@
+#rgxset/1
+#sha256:6abaf97cdbaea1af811989cd130c1c29418fca47e8afe6b50928af0138208509
+#rule halt
+P:\ABF1\|ST:run\|C:([^^]*+)\^\|T:
+R:BF1|ST:hlt|C:${1}^|T:
+#rule plus_ff
+P:\ABF1\|ST:run\|C:([^^]*+)\^\+([^@]*+@)ff
+R:BF1|ST:run|C:${1}+^${2}00
+#rule plus_carry
+P:\ABF1\|ST:run\|C:([^^]*+)\^\+([^@]*+@)([0-9a-e])f(?=[^|]*+\|D:[0-9a-f]*?\3([0-9a-f]))
+R:BF1|ST:run|C:${1}+^${2}${4}0
+#rule plus
+P:\ABF1\|ST:run\|C:([^^]*+)\^\+([^@]*+@[0-9a-f])([0-9a-e])(?=[^|]*+\|D:[0-9a-f]*?\3([0-9a-f]))
+R:BF1|ST:run|C:${1}+^${2}${4}
+#rule minus_00
+P:\ABF1\|ST:run\|C:([^^]*+)\^-([^@]*+@)00
+R:BF1|ST:run|C:${1}-^${2}ff
+#rule minus_borrow
+P:\ABF1\|ST:run\|C:([^^]*+)\^-([^@]*+@)([1-9a-f])0(?=[^|]*+\|D:[0-9a-f]*?([0-9a-f])\3)
+R:BF1|ST:run|C:${1}-^${2}${4}f
+#rule minus
+P:\ABF1\|ST:run\|C:([^^]*+)\^-([^@]*+@[0-9a-f])([1-9a-f])(?=[^|]*+\|D:[0-9a-f]*?([0-9a-f])\3)
+R:BF1|ST:run|C:${1}-^${2}${4}
+#rule right
+P:\ABF1\|ST:run\|C:([^^]*+)\^>([^@]*+)@([0-9a-f]{2}) 
+R:BF1|ST:run|C:${1}>^${2}${3} @
+#rule right_grow
+P:\ABF1\|ST:run\|C:([^^]*+)\^>([^@]*+)@([0-9a-f]{2})\|D:
+R:BF1|ST:run|C:${1}>^${2}${3} @00|D:
+#rule left_edge
+P:\ABF1\|ST:run(\|C:[^^]*+)\^<((?:[+\-<>.,\[\]])*+\|T:)@
+R:BF1|ST:err:TAPE${1}^<${2}@
+#rule left
+P:\ABF1\|ST:run\|C:([^^]*+)\^<([^@]*)([0-9a-f]{2}) @
+R:BF1|ST:run|C:${1}<^${2}@${3} 
+#rule dot
+P:\ABF1\|ST:run\|C:([^^]*+)\^\.([^@]*+@)([0-9a-f]{2})([^|]*+\|D:[0-9a-f]*+\|IN:[0-9a-f]*+\|OUT:[0-9a-f]*+)\|
+R:BF1|ST:run|C:${1}.^${2}${3}${4}${3}|
+#rule comma_in
+P:\ABF1\|ST:run\|C:([^^]*+)\^,([^@]*+@)[0-9a-f]{2}([^|]*+\|D:[0-9a-f]*+\|IN:)([0-9a-f]{2})
+R:BF1|ST:run|C:${1},^${2}${4}${3}
+#rule comma_eof
+P:\ABF1\|ST:run\|C:([^^]*+)\^,([^@]*+@)[0-9a-f]{2}(?=[^|]*+\|D:[0-9a-f]*+\|IN:\|)
+R:BF1|ST:run|C:${1},^${2}00
+#rule lbracket_enter
+P:\ABF1\|ST:run\|C:([^^]*+)\^\[(?=[^@]*+@(?!00))
+R:BF1|ST:run|C:${1}[^
+#rule lbracket_skip
+P:\ABF1\|ST:run\|C:([^^]*+)\^(\[(?:[+\-<>.,]++|(?2))*+\])(?=[^@]*+@00)
+R:BF1|ST:run|C:${1}${2}^
+#rule rbracket
+P:\ABF1\|ST:run\|C:([^^]*?)\[((?:[+\-<>.,]++|\[(?2)\])*+)\^\]
+R:BF1|ST:run|C:${1}^[${2}]
+#rule wedge
+P:\ABF1\|ST:run\|
+R:BF1|ST:err:WEDGE|
