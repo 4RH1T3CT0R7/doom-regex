@@ -10,3 +10,4 @@ run/
 trace.jsonl
 stats.csv
 .claude/
+.idea/
