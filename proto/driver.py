@@ -123,8 +123,22 @@ def export_fb(state: str, path: Path, passes: int) -> None:
 
 
 def inject_input(state: str, data: bytes) -> str:
-    """Литеральный splice байтов ввода сразу после |IN: (правило 3 HONESTY)."""
-    return state.replace("|IN:", "|IN:" + data.hex(), 1) if data else state
+    """Литеральный splice байтов в ХВОСТ зоны |IN: (FIFO; правило 3 HONESTY)."""
+    if not data:
+        return state
+    i = state.find("|IN:")
+    j = state.find("|", i + 4)
+    return state[:j] + data.hex() + state[j:]
+
+
+def load_journal(path: Path) -> list[tuple[int, bytes]]:
+    """Журнал инжекций: строки '<pass> <hex>'."""
+    out = []
+    for line in path.read_text("ascii").splitlines():
+        if line:
+            p, h = line.split()
+            out.append((int(p), bytes.fromhex(h)))
+    return out
 
 
 class InputTail:
@@ -147,19 +161,35 @@ def run(rules: list[Rule], state: str, *, max_passes: int | None = None,
         echo_out: bool = True, trace_every: int = 0,
         stats_file: Path | None = None,
         fb_every: int = 0, fb_path: Path | None = None,
-        io_every: int = 64, input_tail: "InputTail | None" = None):
-    """Цикл Маркова. Возвращает (final_state, passes, exit_reason)."""
+        io_every: int = 64, input_tail: "InputTail | None" = None,
+        io_journal: Path | None = None,
+        replay: list[tuple[int, bytes]] | None = None):
+    """Цикл Маркова. Возвращает (final_state, passes, exit_reason).
+
+    Детерминизм: каждая живая инжекция журналируется как (проход, hex);
+    replay= повторяет журнал байт-в-байт на тех же номерах проходов.
+    """
     passes = 0
     out_seen = 0
     t0 = time.perf_counter()
     stats_rows: list[str] = []
+    replay_idx = 0
 
     while True:
         if max_passes is not None and passes >= max_passes:
             return state, passes, "max-passes"
 
-        if input_tail is not None and passes % io_every == 0:
-            state = inject_input(state, input_tail.poll())
+        if replay is not None:
+            while replay_idx < len(replay) and replay[replay_idx][0] == passes:
+                state = inject_input(state, replay[replay_idx][1])
+                replay_idx += 1
+        elif input_tail is not None and passes % io_every == 0:
+            data = input_tail.poll()
+            if data:
+                state = inject_input(state, data)
+                if io_journal is not None:
+                    with io_journal.open("a", encoding="ascii") as jf:
+                        jf.write(f"{passes} {data.hex()}\n")
         if fb_every and fb_path is not None and passes % fb_every == 0:
             export_fb(state, fb_path, passes)
 
@@ -215,6 +245,8 @@ def main() -> int:
     ap.add_argument("--fb-file", type=Path, default=None)
     ap.add_argument("--input-file", type=Path, default=None)
     ap.add_argument("--io-every", type=int, default=64)
+    ap.add_argument("--io-journal", type=Path, default=None)
+    ap.add_argument("--replay", type=Path, default=None)
     args = ap.parse_args()
 
     rules = load_rgxset(args.rules)
@@ -225,7 +257,9 @@ def main() -> int:
         trace_every=args.trace_every, stats_file=args.stats,
         fb_every=args.fb_every, fb_path=args.fb_file,
         io_every=args.io_every,
-        input_tail=InputTail(args.input_file) if args.input_file else None)
+        input_tail=InputTail(args.input_file) if args.input_file else None,
+        io_journal=args.io_journal,
+        replay=load_journal(args.replay) if args.replay else None)
     dt = time.perf_counter() - t0
     if args.fb_file is not None:
         export_fb(state, args.fb_file, passes)

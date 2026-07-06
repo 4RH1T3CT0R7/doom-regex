@@ -64,10 +64,22 @@ def _tokenize_eir(text: str):
             continue
         if line.startswith((".file", ".loc")):
             continue
-        if line.endswith(":") and " " not in line:
-            out.append(("label", section, line[:-1], lineno))
+        # метки (возможно несколько + инструкция на той же строке)
+        while ":" in line.split(None, 1)[0]:
+            head, _, rest = line.partition(":")
+            if " " in head or "\t" in head:
+                break
+            out.append(("label", section, head, lineno))
+            line = rest.strip()
+            if not line:
+                break
+        if not line:
             continue
         parts = line.split(None, 1)
+        if parts[0].startswith(".") and parts[0] not in (".long", ".string"):
+            print(f"eir2rvs: warning: пропущена директива {parts[0]} "
+                  f"(строка {lineno})", file=sys.stderr)
+            continue
         op = parts[0].lower()
         args = [a.strip() for a in parts[1].split(",")] if len(parts) > 1 else []
         if section == "data":

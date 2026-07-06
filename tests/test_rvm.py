@@ -183,17 +183,8 @@ def test_trap_badop():
 
 def test_trap_noslot():
     prog = P("JMP 5", "HLT")
-    ref = RefEmu(prog)
-    state = encode(ref.m)
-    # эмулятор: шаг JMP, затем err:NOSLOT
-    ref.step()
-    assert not ref.step() and ref.m.st == "err:NOSLOT"
-    # машина: jmp -> PH:2, fetch не находит слот -> трап (внутри advance)
-    state, alive = advance_to_ph0(state)
-    if alive:   # если PH:0 достигнут до трапа — ещё один цикл
-        state, alive = advance_to_ph0(state)
-    assert not alive and "|ST:err:NOSLOT" in state
-    assert state == encode(ref.m)
+    m, _ = lockstep(prog)
+    assert m.st == "err:NOSLOT"
 
 
 def test_fib20_g1a():

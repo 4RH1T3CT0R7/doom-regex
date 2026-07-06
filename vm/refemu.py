@@ -42,6 +42,10 @@ class RefEmu:
             return False
         ins = m.prog[m.pc]
         op, d, s, imm = ins.op.name, ins.d, ins.s, ins.imm
+        if d >= len(m.regs) or s >= len(m.regs):
+            # машина: операнды вне [0-7] не матчат ни один исполнитель
+            m.st = "err:BADOP"
+            return False
         R = m.regs
         nxt = m.pc + 1
 
@@ -98,6 +102,12 @@ class RefEmu:
             return False
 
         m.pc = nxt & WORD_MASK
+        if m.pc >= len(m.prog):
+            # машина «сплавляет» неудачную выборку в трап в том же
+            # архитектурном шаге (exec -> PH:2 -> fetch-fail -> NOSLOT);
+            # эмулятор обязан не задерживаться в транзиентном ST:run
+            m.st = "err:NOSLOT"
+            return False
         return True
 
     def run(self, max_steps: int = 10_000_000) -> str:

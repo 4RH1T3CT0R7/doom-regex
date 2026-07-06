@@ -266,25 +266,52 @@ static int markov_pass(Vm *vm, const char **applied) {
 
 /* --- FB: честная копия зоны #F в файл (атомарно через rename) ---------- */
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 static void export_fb(const Vm *vm, const char *path) {
     const char *z = strstr(vm->state, "#F");
     if (!z) return;
     const char *end = strchr(z + 2, '#');
     if (!end) return;
     char tmp[1024];
-    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) {
+        fprintf(stderr, "rvm: слишком длинный --fb-file путь\n");
+        return;
+    }
     FILE *f = fopen(tmp, "wb");
     if (!f) return;
     fprintf(f, "%llu\n", vm->passes);
     fwrite(z + 2, 1, (size_t)(end - z - 2), f);
     fclose(f);
-    remove(path);
+#ifdef _WIN32
+    MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);  /* атомарно */
+#else
     rename(tmp, path);
+#endif
 }
 
-/* --- ввод: литеральный splice новых байтов input-файла после |IN: ------ */
+/* --- ввод: literal-splice hex-байтов в ХВОСТ зоны |IN: (FIFO) ----------- */
 
-typedef struct { const char *path; long pos; } InTail;
+typedef struct { const char *path; long pos; FILE *journal; } InTail;
+
+static void splice_in_hex(Vm *vm, const char *hex, size_t hexlen) {
+    char *tag = strstr(vm->state, "|IN:");
+    if (!tag) return;
+    char *zone_end = strchr(tag + 4, '|');       /* хвост очереди (FIFO) */
+    if (!zone_end) return;
+    size_t off = (size_t)(zone_end - vm->state);
+    size_t need = vm->len + hexlen + 1;
+    if (need > vm->cap) {
+        vm->cap = need + 4096;
+        vm->state = realloc(vm->state, vm->cap);
+        if (!vm->state) die("oom input");
+    }
+    memmove(vm->state + off + hexlen, vm->state + off, vm->len - off + 1);
+    memcpy(vm->state + off, hex, hexlen);
+    vm->len += hexlen;
+}
 
 static void inject_input(Vm *vm, InTail *t) {
     if (!t->path) return;
@@ -302,25 +329,53 @@ static void inject_input(Vm *vm, InTail *t) {
     fclose(f);
     t->pos = n;
 
-    char *tag = strstr(vm->state, "|IN:");
-    if (!tag) { free(raw); return; }
-    size_t off = (size_t)(tag - vm->state) + 4;
-    size_t need = vm->len + (size_t)cnt * 2 + 1;
-    if (need > vm->cap) {
-        vm->cap = need + 4096;
-        vm->state = realloc(vm->state, vm->cap);
-        if (!vm->state) die("oom input");
-        tag = vm->state + off - 4;
-    }
-    memmove(vm->state + off + (size_t)cnt * 2, vm->state + off,
-            vm->len - off + 1);
+    char *hex = malloc((size_t)cnt * 2 + 1);
+    if (!hex) die("oom hex");
     static const char hexd[] = "0123456789abcdef";
     for (long i = 0; i < cnt; i++) {
-        vm->state[off + (size_t)i * 2] = hexd[raw[i] >> 4];
-        vm->state[off + (size_t)i * 2 + 1] = hexd[raw[i] & 0xF];
+        hex[i * 2] = hexd[raw[i] >> 4];
+        hex[i * 2 + 1] = hexd[raw[i] & 0xF];
     }
-    vm->len += (size_t)cnt * 2;
+    hex[cnt * 2] = 0;
+    splice_in_hex(vm, hex, (size_t)cnt * 2);
+    /* журнал детерминизма: (проход, hex) — прогон воспроизводим */
+    if (t->journal) {
+        fprintf(t->journal, "%llu %s\n", vm->passes, hex);
+        fflush(t->journal);
+    }
+    free(hex);
     free(raw);
+}
+
+/* --- replay: повтор журнала инжекций байт-в-байт ------------------------ */
+
+typedef struct { unsigned long long pass; char *hex; } InjectRec;
+
+static InjectRec *load_journal(const char *path, int *out_n) {
+    size_t n;
+    char *text = read_file(path, &n);
+    InjectRec *recs = NULL;
+    int cnt = 0, cap = 0;
+    char *save = NULL;
+    for (char *line = strtok_r(text, "\n", &save); line;
+         line = strtok_r(NULL, "\n", &save)) {
+        strip_cr(line);
+        if (!*line) continue;
+        char *sp = strchr(line, ' ');
+        if (!sp) die("кривой журнал инжекций");
+        *sp = 0;
+        if (cnt == cap) {
+            cap = cap ? cap * 2 : 16;
+            recs = realloc(recs, (size_t)cap * sizeof *recs);
+            if (!recs) die("oom journal");
+        }
+        recs[cnt].pass = strtoull(line, NULL, 10);
+        recs[cnt].hex = strdup(sp + 1);
+        cnt++;
+    }
+    free(text);
+    *out_n = cnt;
+    return recs;
 }
 
 /* --- OUT: механический hex->байты транскод (аналог UART) --------------- */
@@ -366,7 +421,10 @@ int main(int argc, char **argv) {
     long long max_passes = -1;
     long long trace_every = 0, fb_every = 0, io_every = 64;
     int quiet = 0;
-    InTail intail = {NULL, 0};
+    InTail intail = {NULL, 0, NULL};
+    const char *journal_path = NULL, *replay_path = NULL;
+    InjectRec *replay = NULL;
+    int replay_n = 0, replay_i = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--selftest")) return selftest();
@@ -378,6 +436,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--fb-every") && i + 1 < argc) fb_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--fb-file") && i + 1 < argc) fb_path = argv[++i];
         else if (!strcmp(argv[i], "--input-file") && i + 1 < argc) intail.path = argv[++i];
+        else if (!strcmp(argv[i], "--io-journal") && i + 1 < argc) journal_path = argv[++i];
+        else if (!strcmp(argv[i], "--replay") && i + 1 < argc) replay_path = argv[++i];
         else if (!strcmp(argv[i], "--io-every") && i + 1 < argc) io_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
         else { fprintf(stderr, "rvm: неизвестный аргумент %s\n", argv[i]); return 2; }
@@ -395,6 +455,11 @@ int main(int argc, char **argv) {
 
     load_rules(&vm, rules_path);
     load_state(&vm, state_path);
+    if (journal_path) {
+        intail.journal = fopen(journal_path, "wb");
+        if (!intail.journal) die("не открыть --io-journal");
+    }
+    if (replay_path) replay = load_journal(replay_path, &replay_n);
 
     double t0 = now_sec();
     const char *reason = "fixpoint-run";
@@ -405,7 +470,14 @@ int main(int argc, char **argv) {
             reason = "max-passes";
             break;
         }
-        if (intail.path && vm.passes % (unsigned long long)io_every == 0)
+        if (replay) {
+            while (replay_i < replay_n && replay[replay_i].pass == vm.passes) {
+                splice_in_hex(&vm, replay[replay_i].hex,
+                              strlen(replay[replay_i].hex));
+                replay_i++;
+            }
+        } else if (intail.path
+                   && vm.passes % (unsigned long long)io_every == 0)
             inject_input(&vm, &intail);
         if (fb_every && fb_path
             && vm.passes % (unsigned long long)fb_every == 0)
