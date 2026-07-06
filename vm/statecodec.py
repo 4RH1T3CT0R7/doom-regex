@@ -8,8 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from vm.isa import (ROM, WORD_MASK, NUM_REGS, FB_CELLS, Insn, hexw,
-                    zone_l, zone_q)
+from vm.isa import ROM, WORD_MASK, NUM_REGS, FB_CELLS, Insn, hexw
 
 
 @dataclass
@@ -37,16 +36,19 @@ def _ci(m: MachState) -> str:
 def encode(m: MachState) -> str:
     regs = "".join(f"|R{i}:{hexw(m.regs[i])}" for i in range(NUM_REGS))
     prog = "".join(ins.encode(a) for a, ins in enumerate(m.prog))
-    ram = "".join(f"[{hexw(a)}:{hexw(v)}]" for a, v in sorted(m.ram.items()))
-    # зеркала таблиц пар #q/#l ПОСЛЕ #M: lookahead смотрит только вперёд,
-    # а LT-проверки вставки выполняются из середины #M
-    mirror = "#q" + zone_q()[2:] + "#l" + zone_l()[2:]
-    # FB: пре-populated ячейки [offset4:byte2] — store_fb всегда hit
+    # #M НЕ сортирован: правило вставки prepend'ит новую ячейку сразу после
+    # #M за O(1); dict Python хранит порядок вставки => reversed воспроизводит
+    # порядок машины байт-в-байт (обновления существующих ячеек порядок не
+    # меняют ни там, ни там)
+    ram = "".join(f"[{hexw(a)}:{hexw(v)}]"
+                  for a, v in reversed(list(m.ram.items())))
+    # FB: пре-populated ячейки [offset4:byte2] — store_fb всегда hit;
+    # зона ДО #M (фиксированный размер => короткие сканы, #M растёт позади)
     fb = "".join(f"[{i:04x}:{m.fb[i]:02x}]" for i in range(len(m.fb)))
     return (
         f"RVM1|ST:{m.st}|PH:{m.ph}|CI:{_ci(m)}|PC:{hexw(m.pc)}{regs}"
         f"|CLK:{hexw(m.clk)}|IN:{m.inp.hex()}|OUT:{m.out.hex()}|"
-        f"{ROM}#P{prog}#M{ram}{mirror}#F{fb}#E"
+        f"{ROM}#P{prog}#F{fb}#M{ram}#E"
     )
 
 

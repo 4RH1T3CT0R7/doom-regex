@@ -79,22 +79,6 @@ def lt_condition(tq: str = "Q", tl: str = "L") -> str:
     return "(?:" + "|".join(branches) + ")"
 
 
-def lt_mirror(a: str, b: str) -> str:
-    branches = []
-    for k in range(7, -1, -1):
-        eqs = "".join(
-            rf"(?={HOP}q[^#]*?:(?P={a}{j})(?P={b}{j}))"
-            for j in range(7, k, -1))
-        branches.append(eqs + rf"(?={HOP}l[^#]*?:(?P={a}{k})(?P={b}{k}))")
-    return "(?:" + "|".join(branches) + ")"
-
-
-def cell_lt_loop(b: str) -> str:
-    cell = ("\\[" + "".join(rf"(?<a{i}>.)" for i in range(7, -1, -1))
-            + r":.{8}\]")
-    return rf"(?:{cell}{lt_mirror('a', b)})*+"
-
-
 def consume_dst() -> str:
     return rf"(?<pre>{FIELD}R(?P=d):).{{8}}"
 
@@ -199,12 +183,10 @@ def build_rules() -> list[tuple[str, str, str]]:
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
               + rf"(?<pre>{HOP}M[^#]*?\[(?P=imm):).{{8}}",
               R1 + "${pre}${v}"))
-    R.append(("storei_ins",
-              ci(0x23, r"(?<d>[0-7])."
-                 + "(?<imm>" + "".join(rf"(?<i{i}>.)"
-                                       for i in range(7, -1, -1)) + ")")
+    R.append(("storei_ins",       # O(1) prepend сразу после #M (без сортировки)
+              ci(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
-              + rf"(?<pre>{HOP}M{cell_lt_loop('i')})",
+              + rf"(?<pre>{HOP}M)",
               R1 + "${pre}[${imm}:${v}]"))
     R.append(("store_hit",
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
@@ -212,13 +194,11 @@ def build_rules() -> list[tuple[str, str, str]]:
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
               + rf"(?<pre>{HOP}M[^#]*?\[(?P=addr):).{{8}}",
               R1 + "${pre}${v}"))
-    R.append(("store_ins",
+    R.append(("store_ins",        # O(1) prepend сразу после #M
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
-              + read_reg(r"(?P=d)",
-                         "(?<addr>" + "".join(
-                             rf"(?<i{i}>.)" for i in range(7, -1, -1)) + ")")
+              + read_reg(r"(?P=d)", r"(?<addr>.{8})")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
-              + rf"(?<pre>{HOP}M{cell_lt_loop('i')})",
+              + rf"(?<pre>{HOP}M)",
               R1 + "${pre}[${addr}:${v}]"))
 
     # --- переходы: взятые -> PH:2 (refetch), невзятые -> PH:1 ---------------
