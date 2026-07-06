@@ -1,0 +1,12 @@
+--- /tmp/dg-upstream/doomgeneric/m_menu.c	2026-07-07 01:36:34.018895800 +0300
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/m_menu.c	2026-07-07 01:39:06.294917400 +0300
+@@ -2063,7 +2063,8 @@
+ //
+ void M_Ticker (void)
+ {
+-    if (--skullAnimCounter <= 0)
++    skullAnimCounter = skullAnimCounter - 1;
++    if (skullAnimCounter <= 0)
+     {
+ 	whichSkull ^= 1;
+ 	skullAnimCounter = 8;

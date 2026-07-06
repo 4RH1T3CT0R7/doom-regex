@@ -1,0 +1,17 @@
+--- /tmp/dg-upstream/doomgeneric/i_video.h	2026-07-07 01:36:34.010396000 +0300
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/i_video.h	2026-07-07 01:38:00.587829500 +0300
+@@ -139,10 +139,10 @@
+ void I_EndRead (void);
+ 
+ struct color {
+-    uint32_t b:8;
+-    uint32_t g:8;
+-    uint32_t r:8;
+-    uint32_t a:8;
++    uint8_t b;
++    uint8_t g;
++    uint8_t r;
++    uint8_t a;
+ };
+ 
+ 

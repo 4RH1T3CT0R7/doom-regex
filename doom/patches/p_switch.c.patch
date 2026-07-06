@@ -1,0 +1,29 @@
+--- /tmp/dg-upstream/doomgeneric/p_switch.c	2026-07-07 01:36:34.038892400 +0300
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/p_switch.c	2026-07-07 01:39:06.176102600 +0300
+@@ -219,7 +219,7 @@
+     {
+ 	if (switchlist[i] == texTop)
+ 	{
+-	    S_StartSound(buttonlist->soundorg,sound);
++	    S_StartSound(buttonlist[0].soundorg,sound);
+ 	    sides[line->sidenum[0]].toptexture = switchlist[i^1];
+ 
+ 	    if (useAgain)
+@@ -231,7 +231,7 @@
+ 	{
+ 	    if (switchlist[i] == texMid)
+ 	    {
+-		S_StartSound(buttonlist->soundorg,sound);
++		S_StartSound(buttonlist[0].soundorg,sound);
+ 		sides[line->sidenum[0]].midtexture = switchlist[i^1];
+ 
+ 		if (useAgain)
+@@ -243,7 +243,7 @@
+ 	    {
+ 		if (switchlist[i] == texBot)
+ 		{
+-		    S_StartSound(buttonlist->soundorg,sound);
++		    S_StartSound(buttonlist[0].soundorg,sound);
+ 		    sides[line->sidenum[0]].bottomtexture = switchlist[i^1];
+ 
+ 		    if (useAgain)
