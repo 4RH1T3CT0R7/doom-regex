@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
 r"""Генератор правил RVM-1 -> vm/rules_rvm.rgxset.
 
-Правила программонезависимы: программа живёт в зоне #P строки-состояния,
-как BF-код жил в C:. Схема исполнения — vm/isa.md.
+Правила программонезависимы: программа живёт в зоне #P строки-состояния.
+Схема исполнения — vm/isa.md (v2: CI-кэш).
 
-Идиомы (проверены этапом 0):
-  * \A-якорь + литеральный гейт ST:run|PH:x — fail-fast;
-  * lookahead-выборка I(?P=pc):<op> в #P (лениво);
+Конвейер фаз (v2, после перф-редизайна):
+  PH:0 exec   — исполнители матчат опкод в CI: по ФИКСИРОВАННОМУ смещению
+                заголовка (O(1)-отказ несовпавших правил, скана #P нет);
+  PH:1 pcinc  — каскад инкремента PC;
+  PH:2 fetch  — ЕДИНСТВЕННЫЙ скан #P: слот I<pc>: -> CI (шаг по слотам
+                possessive-юнитами, откат только на границах слотов).
+CPI: 3 прохода на линейную инструкцию, 2 на взятый переход (exec->fetch).
+
+Идиомы (этап 0 + ревью спеки):
+  * \A-якорь + литеральные гейты ST/PH — fail-fast;
   * динамический выбор регистра: backreference в имени тега R(?P=d):;
-  * цепочка сумматора: 8 lookahead-lookup'ов в #A/#S, перенос через
-    захваченные группы;
-  * упорядоченные дополнения вместо отрицаний (JNE = «равно→skip» раньше
-    «взят»); catch-all-трапы в конце (тотальность).
+  * цепочка сумматора: 8 lookahead-lookup'ов в #A/#S;
+  * упорядоченные дополнения вместо отрицаний; catch-all-трапы (тотальность);
+  * (?P=name) — синтаксис backreference, совместимый с PCRE2 и Python regex.
 
 Запуск: py -3.11 vm/genpattern.py
 """
@@ -23,21 +29,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-HEAD_RUN0 = r"\ARVM1\|ST:run\|PH:0\|PC:(?<pc>.{8})"
-HEAD_RUN1 = r"\ARVM1\|ST:run\|PH:1\|PC:"
-REP0 = "RVM1|ST:run|PH:0|PC:"
-REP1 = "RVM1|ST:run|PH:1|PC:"
+# --- заголовки фаз ------------------------------------------------------
+H0 = r"\ARVM1\|ST:run\|PH:0\|CI:"          # исполнители: далее (?<ci>...)
+H1 = r"\ARVM1\|ST:run\|PH:1\|CI:(?<ci>.{12})\|PC:"
+H2 = r"\ARVM1\|ST:run\|PH:2\|CI:.{12}\|PC:(?<pc>.{8})"
 
-# Идиомы сканов (ревью спеки): откаты только на границах полей/зон.
-# HOP: скачок к зоне #X — ленивое повторение possessive-юнитов «не-# + #».
-# FIELD: шаг по полям заголовка «не-|# + |» — не пересекает #-зоны.
+R0 = "RVM1|ST:run|PH:0|CI:"
+R1 = "RVM1|ST:run|PH:1|CI:${ci}|PC:${pc}"   # exec -> pcinc
+R2J = "RVM1|ST:run|PH:2|CI:${ci}|PC:"        # взятый переход -> fetch
+
+# Идиомы сканов: откаты только на границах полей/зон/слотов.
 HOP = r"(?:[^#]*+#)+?"
 FIELD = r"(?:[^|#]*+\|)*?"
+SLOT = r"(?:I[^;]*+;)*?"
 
 
-def fetch(op: int, operands: str) -> str:
-    """Lookahead-выборка инструкции по PC: literal-опкод + захват операндов."""
-    return rf"(?={HOP}P[^#]*?I(?P=pc):{op:02x}{operands};)"
+def ci(op: int, operands: str) -> str:
+    """Голова исполнителя: опкод-литерал в CI-кэше + захват операндов."""
+    return H0 + rf"(?<ci>{op:02x}{operands})\|PC:(?<pc>.{{8}})"
 
 
 def read_reg(reg_ref: str, capture: str) -> str:
@@ -45,12 +54,10 @@ def read_reg(reg_ref: str, capture: str) -> str:
 
 
 def digits(prefix: str) -> str:
-    """8 именованных однобуквенных захватов: p7..p0 (MSB..LSB)."""
     return "".join(rf"(?<{prefix}{i}>.)" for i in range(7, -1, -1))
 
 
 def adder_chain(table: str) -> str:
-    """Цепочка полного сумматора/вычитателя: (d,s,c)->(o,c')."""
     parts = [rf"(?={HOP}{table}[^#]*?:(?P=d0)(?P=s0)0=(?<o0>.)(?<c1>.))"]
     for i in range(1, 7):
         parts.append(
@@ -63,23 +70,16 @@ def out_digits() -> str:
     return "${o7}${o6}${o5}${o4}${o3}${o2}${o1}${o0}"
 
 
-def lt_condition() -> str:
-    """R[d] < R[s] (unsigned): альтернация «префикс равен, первая меньше»."""
+def lt_condition(tq: str = "Q", tl: str = "L") -> str:
     branches = []
     for k in range(7, -1, -1):
         eqs = "".join(
-            rf"(?={HOP}Q[^#]*?:(?P=d{j})(?P=s{j}))" for j in range(7, k, -1))
-        branches.append(eqs + rf"(?={HOP}L[^#]*?:(?P=d{k})(?P=s{k}))")
+            rf"(?={HOP}{tq}[^#]*?:(?P=d{j})(?P=s{j}))" for j in range(7, k, -1))
+        branches.append(eqs + rf"(?={HOP}{tl}[^#]*?:(?P=d{k})(?P=s{k}))")
     return "(?:" + "|".join(branches) + ")"
 
 
-def consume_dst() -> str:
-    return rf"(?<pre>{FIELD}R(?P=d):).{{8}}"
-
-
 def lt_mirror(a: str, b: str) -> str:
-    """a < b по цифрам через ЗЕРКАЛА таблиц #q/#l (лежат после #M:
-    lookahead смотрит только вперёд, а проверка идёт из середины #M)."""
     branches = []
     for k in range(7, -1, -1):
         eqs = "".join(
@@ -90,177 +90,197 @@ def lt_mirror(a: str, b: str) -> str:
 
 
 def cell_lt_loop(b: str) -> str:
-    """Possessive-цикл: потребить все RAM-ячейки с адресом СТРОГО МЕНЬШЕ
-    вектора цифр b7..b0. Останавливается на первой не-меньшей ячейке или
-    границе зоны. Равная ячейка исключена порядком правил (hit раньше)."""
     cell = ("\\[" + "".join(rf"(?<a{i}>.)" for i in range(7, -1, -1))
             + r":.{8}\]")
     return rf"(?:{cell}{lt_mirror('a', b)})*+"
 
 
+def consume_dst() -> str:
+    return rf"(?<pre>{FIELD}R(?P=d):).{{8}}"
+
+
 def build_rules() -> list[tuple[str, str, str]]:
     R: list[tuple[str, str, str]] = []
 
-    # --- PH:1 — каскад инкремента PC (первым: 50% всех проходов) ---------
+    # --- PH:2 fetch: единственный скан #P (шаг по слотам) ------------------
+    R.append(("fetch",
+              H2 + rf"(?={HOP}P{SLOT}I(?P=pc):(?<nci>.{{12}});)",
+              "RVM1|ST:run|PH:0|CI:${nci}|PC:${pc}"))
+    R.append(("trap_noslot", H2,
+              "RVM1|ST:err:NOSLOT|PH:0|CI:------------|PC:${pc}"))
+
+    # --- PH:1 pcinc: каскад (частый путь сразу после fetch) ----------------
     R.append(("pcinc_d0",
-              HEAD_RUN1 + r"(?<p>.{7})(?<x>[0-9a-e])"
+              H1 + r"(?<p>.{7})(?<x>[0-9a-e])"
               + rf"(?={HOP}D[0-9a-f]*?(?P=x)(?<n>.))",
-              REP0 + "${p}${n}"))
+              "RVM1|ST:run|PH:2|CI:${ci}|PC:${p}${n}"))
     for i in range(1, 8):
         R.append((f"pcinc_d{i}",
-                  HEAD_RUN1 + rf"(?<p>.{{{7 - i}}})(?<x>[0-9a-e])f{{{i}}}"
+                  H1 + rf"(?<p>.{{{7 - i}}})(?<x>[0-9a-e])f{{{i}}}"
                   + rf"(?={HOP}D[0-9a-f]*?(?P=x)(?<n>.))",
-                  REP0 + "${p}${n}" + "0" * i))
-    R.append(("pcinc_wrap", HEAD_RUN1 + r"f{8}", REP0 + "0" * 8))
+                  "RVM1|ST:run|PH:2|CI:${ci}|PC:${p}${n}" + "0" * i))
+    R.append(("pcinc_wrap", H1 + r"f{8}",
+              "RVM1|ST:run|PH:2|CI:${ci}|PC:" + "0" * 8))
 
-    # --- пересылки ---------------------------------------------------------
+    # --- PH:0 исполнители: O(1)-отказ по CI-литералу -----------------------
     R.append(("movi",
-              HEAD_RUN0 + fetch(0x02, r"(?<d>[0-7]).(?<imm>.{8})")
-              + consume_dst(),
-              REP1 + "${pc}${pre}${imm}"))
+              ci(0x02, r"(?<d>[0-7]).(?<imm>.{8})") + consume_dst(),
+              R1 + "${pre}${imm}"))
     R.append(("mov",
-              HEAD_RUN0 + fetch(0x01, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              ci(0x01, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=s)", r"(?<v>.{8})") + consume_dst(),
-              REP1 + "${pc}${pre}${v}"))
+              R1 + "${pre}${v}"))
 
-    # --- АЛУ: ADD/ADDI/SUB/SUBI (один проход, цепочка #A/#S) ---------------
     for name, op, table, imm_src in [
         ("add", 0x10, "A", False), ("addi", 0x11, "A", True),
         ("sub", 0x12, "S", False), ("subi", 0x13, "S", True),
     ]:
         if imm_src:
-            ftch = fetch(op, r"(?<d>[0-7])." + digits("s"))
+            head = ci(op, r"(?<d>[0-7])." + digits("s"))
             src_read = ""
         else:
-            ftch = fetch(op, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+            head = ci(op, r"(?<d>[0-7])(?<s>[0-7]).{8}")
             src_read = read_reg(r"(?P=s)", digits("s"))
         R.append((name,
-                  HEAD_RUN0 + ftch + src_read
-                  + read_reg(r"(?P=d)", digits("d"))
+                  head + src_read + read_reg(r"(?P=d)", digits("d"))
                   + adder_chain(table) + consume_dst(),
-                  REP1 + "${pc}${pre}" + out_digits()))
+                  R1 + "${pre}" + out_digits()))
 
-    # --- память: hit-правила раньше miss/insert (исключают «равно») --------
-    imm_digits = ("(?<imm>" + "".join(rf"(?<i{i}>.)" for i in range(7, -1, -1))
-                  + ")")
+    # WR24: 24-битный wrap за один проход
+    R.append(("wr24",
+              ci(0x50, r"(?<d>[0-7]).{9}")
+              + rf"(?<pre>{FIELD}R(?P=d):).{{2}}",
+              R1 + "${pre}00"))
+
+    # --- фреймбуфер (раньше #M-правил; окно 00f0oooo) ----------------------
+    R.append(("storei_fb",
+              ci(0x23, r"(?<d>[0-7]).00f0(?<o>.{4})")
+              + read_reg(r"(?P=d)", r".{6}(?<b1>.)(?<b0>.)")
+              + rf"(?<pre>{HOP}F[^#]*?\[(?P=o):).{{2}}",
+              R1 + "${pre}${b1}${b0}"))
+    R.append(("store_fb",
+              ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=d)", r"00f0(?<o>.{4})")
+              + read_reg(r"(?P=s)", r".{6}(?<b1>.)(?<b0>.)")
+              + rf"(?<pre>{HOP}F[^#]*?\[(?P=o):).{{2}}",
+              R1 + "${pre}${b1}${b0}"))
+    R.append(("loadi_fb",
+              ci(0x21, r"(?<d>[0-7]).00f0(?<o>.{4})")
+              + rf"(?={HOP}F[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
+              + consume_dst(),
+              R1 + "${pre}000000${fv}"))
+    R.append(("load_fb",
+              ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", r"00f0(?<o>.{4})")
+              + rf"(?={HOP}F[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
+              + consume_dst(),
+              R1 + "${pre}000000${fv}"))
+
+    # --- память #M ----------------------------------------------------------
     R.append(("loadi_hit",
-              HEAD_RUN0 + fetch(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
+              ci(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
               + rf"(?={HOP}M[^#]*?\[(?P=imm):(?<mv>.{{8}})\])"
               + consume_dst(),
-              REP1 + "${pc}${pre}${mv}"))
+              R1 + "${pre}${mv}"))
     R.append(("loadi_miss",
-              HEAD_RUN0 + fetch(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
-              + consume_dst(),
-              REP1 + "${pc}${pre}00000000"))
+              ci(0x21, r"(?<d>[0-7]).(?<imm>.{8})") + consume_dst(),
+              R1 + "${pre}00000000"))
     R.append(("load_hit",
-              HEAD_RUN0 + fetch(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=s)", r"(?<addr>.{8})")
               + rf"(?={HOP}M[^#]*?\[(?P=addr):(?<mv>.{{8}})\])"
               + consume_dst(),
-              REP1 + "${pc}${pre}${mv}"))
+              R1 + "${pre}${mv}"))
     R.append(("load_miss",
-              HEAD_RUN0 + fetch(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
-              + consume_dst(),
-              REP1 + "${pc}${pre}00000000"))
+              ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}") + consume_dst(),
+              R1 + "${pre}00000000"))
     R.append(("storei_hit",
-              HEAD_RUN0 + fetch(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
+              ci(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
               + rf"(?<pre>{HOP}M[^#]*?\[(?P=imm):).{{8}}",
-              REP1 + "${pc}${pre}${v}"))
+              R1 + "${pre}${v}"))
     R.append(("storei_ins",
-              HEAD_RUN0 + fetch(0x23, r"(?<d>[0-7])." + imm_digits)
+              ci(0x23, r"(?<d>[0-7])."
+                 + "(?<imm>" + "".join(rf"(?<i{i}>.)"
+                                       for i in range(7, -1, -1)) + ")")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
               + rf"(?<pre>{HOP}M{cell_lt_loop('i')})",
-              REP1 + "${pc}${pre}[${imm}:${v}]"))
+              R1 + "${pre}[${imm}:${v}]"))
     R.append(("store_hit",
-              HEAD_RUN0 + fetch(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"(?<addr>.{8})")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
               + rf"(?<pre>{HOP}M[^#]*?\[(?P=addr):).{{8}}",
-              REP1 + "${pc}${pre}${v}"))
+              R1 + "${pre}${v}"))
     R.append(("store_ins",
-              HEAD_RUN0 + fetch(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)",
                          "(?<addr>" + "".join(
                              rf"(?<i{i}>.)" for i in range(7, -1, -1)) + ")")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
               + rf"(?<pre>{HOP}M{cell_lt_loop('i')})",
-              REP1 + "${pc}${pre}[${addr}:${v}]"))
+              R1 + "${pre}[${addr}:${v}]"))
 
-    # --- переходы -----------------------------------------------------------
-    R.append(("jmp", HEAD_RUN0 + fetch(0x30, r"..(?<imm>.{8})"),
-              REP0 + "${imm}"))
+    # --- переходы: взятые -> PH:2 (refetch), невзятые -> PH:1 ---------------
+    R.append(("jmp", ci(0x30, r"..(?<imm>.{8})"), R2J + "${imm}"))
     R.append(("jmpr",
-              HEAD_RUN0 + fetch(0x38, r"(?<d>[0-7]).{9}")
+              ci(0x38, r"(?<d>[0-7]).{9}")
               + read_reg(r"(?P=d)", r"(?<v>.{8})"),
-              REP0 + "${v}"))
-    # JEQ: взят (равенство через backreference), иначе skip
+              R2J + "${v}"))
     R.append(("jeq_taken",
-              HEAD_RUN0 + fetch(0x31, r"(?<d>[0-7])(?<s>[0-7])(?<imm>.{8})")
+              ci(0x31, r"(?<d>[0-7])(?<s>[0-7])(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
               + read_reg(r"(?P=s)", r"(?P=v)"),
-              REP0 + "${imm}"))
-    R.append(("jeq_skip", HEAD_RUN0 + fetch(0x31, r"[0-7][0-7].{8}"),
-              REP1 + "${pc}"))
-    # JNE: сначала «равно -> skip», затем безусловный «взят»
+              R2J + "${imm}"))
+    R.append(("jeq_skip", ci(0x31, r"[0-7][0-7].{8}"), R1))
     R.append(("jne_skip_eq",
-              HEAD_RUN0 + fetch(0x32, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              ci(0x32, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
               + read_reg(r"(?P=s)", r"(?P=v)"),
-              REP1 + "${pc}"))
-    R.append(("jne_taken", HEAD_RUN0 + fetch(0x32, r"[0-7][0-7](?<imm>.{8})"),
-              REP0 + "${imm}"))
-    # JLT: взят при <, иначе skip; JGE — упорядоченное дополнение
+              R1))
+    R.append(("jne_taken", ci(0x32, r"[0-7][0-7](?<imm>.{8})"),
+              R2J + "${imm}"))
     R.append(("jlt_taken",
-              HEAD_RUN0 + fetch(0x33, r"(?<d>[0-7])(?<s>[0-7])(?<imm>.{8})")
+              ci(0x33, r"(?<d>[0-7])(?<s>[0-7])(?<imm>.{8})")
               + read_reg(r"(?P=d)", digits("d"))
               + read_reg(r"(?P=s)", digits("s"))
               + lt_condition(),
-              REP0 + "${imm}"))
-    R.append(("jlt_skip", HEAD_RUN0 + fetch(0x33, r"[0-7][0-7].{8}"),
-              REP1 + "${pc}"))
+              R2J + "${imm}"))
+    R.append(("jlt_skip", ci(0x33, r"[0-7][0-7].{8}"), R1))
     R.append(("jge_skip_lt",
-              HEAD_RUN0 + fetch(0x34, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              ci(0x34, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", digits("d"))
               + read_reg(r"(?P=s)", digits("s"))
               + lt_condition(),
-              REP1 + "${pc}"))
-    R.append(("jge_taken", HEAD_RUN0 + fetch(0x34, r"[0-7][0-7](?<imm>.{8})"),
-              REP0 + "${imm}"))
-
-    # --- WR24: 24-битный wrap (обнуление старших 2 цифр за 1 проход) -------
-    R.append(("wr24",
-              HEAD_RUN0 + fetch(0x50, r"(?<d>[0-7]).{9}")
-              + rf"(?<pre>{FIELD}R(?P=d):).{{2}}",
-              REP1 + "${pc}${pre}00"))
+              R1))
+    R.append(("jge_taken", ci(0x34, r"[0-7][0-7](?<imm>.{8})"),
+              R2J + "${imm}"))
 
     # --- I/O ----------------------------------------------------------------
     R.append(("putc",
-              HEAD_RUN0 + fetch(0x40, r"(?<d>[0-7]).{9}")
+              ci(0x40, r"(?<d>[0-7]).{9}")
               + read_reg(r"(?P=d)", r".{6}(?<b1>.)(?<b0>.)")
               + rf"(?<pre>{FIELD}OUT:[0-9a-f]*+)\|",
-              REP1 + "${pc}${pre}${b1}${b0}|"))
+              R1 + "${pre}${b1}${b0}|"))
     R.append(("getc_in",
-              HEAD_RUN0 + fetch(0x41, r"(?<d>[0-7]).{9}")
+              ci(0x41, r"(?<d>[0-7]).{9}")
               + rf"(?<pre>{FIELD}R(?P=d):).{{8}}"
               + rf"(?<mid>{FIELD}IN:)(?<i1>[0-9a-f])(?<i0>[0-9a-f])",
-              REP1 + "${pc}${pre}000000${i1}${i0}${mid}"))
+              R1 + "${pre}000000${i1}${i0}${mid}"))
     R.append(("getc_eof",
-              HEAD_RUN0 + fetch(0x41, r"(?<d>[0-7]).{9}") + consume_dst(),
-              REP1 + "${pc}${pre}00000000"))
+              ci(0x41, r"(?<d>[0-7]).{9}") + consume_dst(),
+              R1 + "${pre}00000000"))
 
-    # --- останов ------------------------------------------------------------
+    # --- останов и трапы (тотальность) --------------------------------------
     R.append(("hlt",
-              HEAD_RUN0 + fetch(0xFF, r".{10}"),
-              "RVM1|ST:hlt|PH:0|PC:${pc}"))
-
-    # --- трапы (тотальность; порядок: badop до noslot, wedge последним) ----
+              ci(0xFF, r".{10}"),
+              "RVM1|ST:hlt|PH:0|CI:${ci}|PC:${pc}"))
+    R.append(("trap_noslot0",       # PH:0 с CI-прочерками (пустая программа)
+              H0 + r"-{12}\|PC:(?<pc>.{8})",
+              "RVM1|ST:err:NOSLOT|PH:0|CI:------------|PC:${pc}"))
     R.append(("trap_badop",
-              HEAD_RUN0 + r"(?=.*?#P[^#]*?I(?P=pc):)",
-              "RVM1|ST:err:BADOP|PH:0|PC:${pc}"))
-    R.append(("trap_noslot",
-              HEAD_RUN0,
-              "RVM1|ST:err:NOSLOT|PH:0|PC:${pc}"))
+              H0 + r"(?<ci>.{12})\|PC:(?<pc>.{8})",
+              "RVM1|ST:err:BADOP|PH:0|CI:${ci}|PC:${pc}"))
     R.append(("wedge", r"\ARVM1\|ST:run\|", "RVM1|ST:err:WEDGE|"))
     return R
 

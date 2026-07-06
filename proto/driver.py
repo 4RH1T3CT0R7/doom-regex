@@ -111,9 +111,43 @@ def read_out_hex(state: str) -> str:
     return state[i + len(OUT_TAG):j]
 
 
+def export_fb(state: str, path: Path, passes: int) -> None:
+    """Честная копия зоны #F (текст ячеек как есть; разбор — дело viz)."""
+    i = state.find("#F")
+    if i < 0:
+        return
+    j = state.find("#", i + 2)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(f"{passes}\n" + state[i + 2:j], encoding="ascii")
+    tmp.replace(path)
+
+
+def inject_input(state: str, data: bytes) -> str:
+    """Литеральный splice байтов ввода сразу после |IN: (правило 3 HONESTY)."""
+    return state.replace("|IN:", "|IN:" + data.hex(), 1) if data else state
+
+
+class InputTail:
+    """Читает появившиеся байты из append-only файла ввода."""
+
+    def __init__(self, path: Path | None):
+        self.path = path
+        self.pos = 0
+
+    def poll(self) -> bytes:
+        if self.path is None or not self.path.exists():
+            return b""
+        data = self.path.read_bytes()
+        new = data[self.pos:]
+        self.pos = len(data)
+        return new
+
+
 def run(rules: list[Rule], state: str, *, max_passes: int | None = None,
         echo_out: bool = True, trace_every: int = 0,
-        stats_file: Path | None = None):
+        stats_file: Path | None = None,
+        fb_every: int = 0, fb_path: Path | None = None,
+        io_every: int = 64, input_tail: "InputTail | None" = None):
     """Цикл Маркова. Возвращает (final_state, passes, exit_reason)."""
     passes = 0
     out_seen = 0
@@ -123,6 +157,11 @@ def run(rules: list[Rule], state: str, *, max_passes: int | None = None,
     while True:
         if max_passes is not None and passes >= max_passes:
             return state, passes, "max-passes"
+
+        if input_tail is not None and passes % io_every == 0:
+            state = inject_input(state, input_tail.poll())
+        if fb_every and fb_path is not None and passes % fb_every == 0:
+            export_fb(state, fb_path, passes)
 
         t_pass = time.perf_counter()
         for rule in rules:
@@ -172,6 +211,10 @@ def main() -> int:
     ap.add_argument("--trace-every", type=int, default=0)
     ap.add_argument("--stats", type=Path, default=None)
     ap.add_argument("--save-final", type=Path, default=None)
+    ap.add_argument("--fb-every", type=int, default=0)
+    ap.add_argument("--fb-file", type=Path, default=None)
+    ap.add_argument("--input-file", type=Path, default=None)
+    ap.add_argument("--io-every", type=int, default=64)
     args = ap.parse_args()
 
     rules = load_rgxset(args.rules)
@@ -179,8 +222,13 @@ def main() -> int:
     t0 = time.perf_counter()
     state, passes, reason = run(
         rules, state, max_passes=args.max_passes,
-        trace_every=args.trace_every, stats_file=args.stats)
+        trace_every=args.trace_every, stats_file=args.stats,
+        fb_every=args.fb_every, fb_path=args.fb_file,
+        io_every=args.io_every,
+        input_tail=InputTail(args.input_file) if args.input_file else None)
     dt = time.perf_counter() - t0
+    if args.fb_file is not None:
+        export_fb(state, args.fb_file, passes)
 
     if args.save_final:
         save_state(args.save_final, state, passes)

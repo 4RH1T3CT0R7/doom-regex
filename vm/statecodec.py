@@ -8,7 +8,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from vm.isa import ROM, WORD_MASK, NUM_REGS, Insn, hexw, zone_l, zone_q
+from vm.isa import (ROM, WORD_MASK, NUM_REGS, FB_CELLS, Insn, hexw,
+                    zone_l, zone_q)
 
 
 @dataclass
@@ -22,7 +23,15 @@ class MachState:
     out: bytes = b""
     prog: list[Insn] = field(default_factory=list)
     ram: dict[int, int] = field(default_factory=dict)   # v1.1
-    fb: bytes = b""                                     # v1.2
+    fb: bytes = bytes(FB_CELLS)                         # v1.2: пиксель=байт
+
+
+def _ci(m: MachState) -> str:
+    """CI-кэш: текущая инструкция (op+d+s+imm, 12 hex) или прочерки."""
+    if m.pc < len(m.prog):
+        i = m.prog[m.pc]
+        return f"{i.op.code:02x}{i.d:01x}{i.s:01x}{i.imm:08x}"
+    return "-" * 12
 
 
 def encode(m: MachState) -> str:
@@ -32,15 +41,18 @@ def encode(m: MachState) -> str:
     # зеркала таблиц пар #q/#l ПОСЛЕ #M: lookahead смотрит только вперёд,
     # а LT-проверки вставки выполняются из середины #M
     mirror = "#q" + zone_q()[2:] + "#l" + zone_l()[2:]
+    # FB: пре-populated ячейки [offset4:byte2] — store_fb всегда hit
+    fb = "".join(f"[{i:04x}:{m.fb[i]:02x}]" for i in range(len(m.fb)))
     return (
-        f"RVM1|ST:{m.st}|PH:{m.ph}|PC:{hexw(m.pc)}{regs}"
+        f"RVM1|ST:{m.st}|PH:{m.ph}|CI:{_ci(m)}|PC:{hexw(m.pc)}{regs}"
         f"|CLK:{hexw(m.clk)}|IN:{m.inp.hex()}|OUT:{m.out.hex()}|"
-        f"{ROM}#P{prog}#M{ram}{mirror}#F{m.fb.hex()}#E"
+        f"{ROM}#P{prog}#M{ram}{mirror}#F{fb}#E"
     )
 
 
 _HEAD = re.compile(
-    r"\ARVM1\|ST:(?P<st>run|hlt|err:[A-Z]+)\|PH:(?P<ph>\d)\|PC:(?P<pc>[0-9a-f]{8})"
+    r"\ARVM1\|ST:(?P<st>run|hlt|err:[A-Z]+)\|PH:(?P<ph>\d)"
+    r"\|CI:(?P<ci>[0-9a-f-]{12})\|PC:(?P<pc>[0-9a-f]{8})"
     + "".join(rf"\|R{i}:(?P<r{i}>[0-9a-f]{{8}})" for i in range(NUM_REGS))
     + r"\|CLK:(?P<clk>[0-9a-f]{8})\|IN:(?P<in>[0-9a-f]*)\|OUT:(?P<out>[0-9a-f]*)\|"
 )

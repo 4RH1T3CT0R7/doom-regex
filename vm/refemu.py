@@ -6,8 +6,25 @@ genpattern.py. Один step() = один архитектурный шаг (о�
 """
 from __future__ import annotations
 
-from vm.isa import WORD_MASK, Insn
+from vm.isa import FB_BASE, WORD_MASK, Insn
 from vm.statecodec import MachState
+
+
+def _mem_read(m: MachState, addr: int) -> int:
+    off = addr - FB_BASE
+    if 0 <= off < len(m.fb):
+        return m.fb[off]
+    return m.ram.get(addr, 0)
+
+
+def _mem_write(m: MachState, addr: int, val: int) -> None:
+    off = addr - FB_BASE
+    if 0 <= off < len(m.fb):
+        fb = bytearray(m.fb)
+        fb[off] = val & 0xFF
+        m.fb = bytes(fb)
+    else:
+        m.ram[addr] = val
 
 
 class RefEmu:
@@ -41,13 +58,13 @@ class RefEmu:
         elif op == "SUBI":
             R[d] = (R[d] - imm) & WORD_MASK
         elif op == "LOAD":
-            R[d] = m.ram.get(R[s], 0)
+            R[d] = _mem_read(m, R[s])
         elif op == "LOADI":
-            R[d] = m.ram.get(imm, 0)
+            R[d] = _mem_read(m, imm)
         elif op == "STORE":
-            m.ram[R[d]] = R[s]
+            _mem_write(m, R[d], R[s])
         elif op == "STOREI":
-            m.ram[imm] = R[d]
+            _mem_write(m, imm, R[d])
         elif op == "JMP":
             nxt = imm
         elif op == "JMPR":

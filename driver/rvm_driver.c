@@ -264,6 +264,65 @@ static int markov_pass(Vm *vm, const char **applied) {
     return 0; /* фикс-точка */
 }
 
+/* --- FB: честная копия зоны #F в файл (атомарно через rename) ---------- */
+
+static void export_fb(const Vm *vm, const char *path) {
+    const char *z = strstr(vm->state, "#F");
+    if (!z) return;
+    const char *end = strchr(z + 2, '#');
+    if (!end) return;
+    char tmp[1024];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    fprintf(f, "%llu\n", vm->passes);
+    fwrite(z + 2, 1, (size_t)(end - z - 2), f);
+    fclose(f);
+    remove(path);
+    rename(tmp, path);
+}
+
+/* --- ввод: литеральный splice новых байтов input-файла после |IN: ------ */
+
+typedef struct { const char *path; long pos; } InTail;
+
+static void inject_input(Vm *vm, InTail *t) {
+    if (!t->path) return;
+    FILE *f = fopen(t->path, "rb");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    if (n <= t->pos) { fclose(f); return; }
+    long cnt = n - t->pos;
+    fseek(f, t->pos, SEEK_SET);
+    unsigned char *raw = malloc((size_t)cnt);
+    if (!raw || fread(raw, 1, (size_t)cnt, f) != (size_t)cnt) {
+        free(raw); fclose(f); return;
+    }
+    fclose(f);
+    t->pos = n;
+
+    char *tag = strstr(vm->state, "|IN:");
+    if (!tag) { free(raw); return; }
+    size_t off = (size_t)(tag - vm->state) + 4;
+    size_t need = vm->len + (size_t)cnt * 2 + 1;
+    if (need > vm->cap) {
+        vm->cap = need + 4096;
+        vm->state = realloc(vm->state, vm->cap);
+        if (!vm->state) die("oom input");
+        tag = vm->state + off - 4;
+    }
+    memmove(vm->state + off + (size_t)cnt * 2, vm->state + off,
+            vm->len - off + 1);
+    static const char hexd[] = "0123456789abcdef";
+    for (long i = 0; i < cnt; i++) {
+        vm->state[off + (size_t)i * 2] = hexd[raw[i] >> 4];
+        vm->state[off + (size_t)i * 2 + 1] = hexd[raw[i] & 0xF];
+    }
+    vm->len += (size_t)cnt * 2;
+    free(raw);
+}
+
 /* --- OUT: механический hex->байты транскод (аналог UART) --------------- */
 
 static void echo_out(Vm *vm) {
@@ -303,9 +362,11 @@ static int selftest(void) {
 
 int main(int argc, char **argv) {
     const char *rules_path = NULL, *state_path = NULL, *save_final = NULL;
+    const char *fb_path = NULL;
     long long max_passes = -1;
-    long long trace_every = 0;
+    long long trace_every = 0, fb_every = 0, io_every = 64;
     int quiet = 0;
+    InTail intail = {NULL, 0};
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--selftest")) return selftest();
@@ -314,6 +375,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--save-final") && i + 1 < argc) save_final = argv[++i];
         else if (!strcmp(argv[i], "--max-passes") && i + 1 < argc) max_passes = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--trace-every") && i + 1 < argc) trace_every = atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--fb-every") && i + 1 < argc) fb_every = atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--fb-file") && i + 1 < argc) fb_path = argv[++i];
+        else if (!strcmp(argv[i], "--input-file") && i + 1 < argc) intail.path = argv[++i];
+        else if (!strcmp(argv[i], "--io-every") && i + 1 < argc) io_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
         else { fprintf(stderr, "rvm: неизвестный аргумент %s\n", argv[i]); return 2; }
     }
@@ -340,6 +405,11 @@ int main(int argc, char **argv) {
             reason = "max-passes";
             break;
         }
+        if (intail.path && vm.passes % (unsigned long long)io_every == 0)
+            inject_input(&vm, &intail);
+        if (fb_every && fb_path
+            && vm.passes % (unsigned long long)fb_every == 0)
+            export_fb(&vm, fb_path);
         if (!markov_pass(&vm, &applied)) {
             if (strstr(vm.state, "|ST:hlt")) reason = "hlt";
             else if (strstr(vm.state, "|ST:err")) reason = "err";
@@ -358,6 +428,7 @@ int main(int argc, char **argv) {
     }
 
     double dt = now_sec() - t0;
+    if (fb_path) export_fb(&vm, fb_path);
     if (save_final) save_state(&vm, save_final);
     if (!quiet)
         fprintf(stderr, "\n-- %s | %llu passes | %.2fs | %.0f pass/s | final len %zu\n",

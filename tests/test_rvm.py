@@ -138,6 +138,14 @@ def P(*lines):
      {"r3": 0xBEEF}),
     (P("MOVI R0, 0xffffffff", "MOVI R1, 7", "STORE R0, R1",      # крайний адрес
        "LOADI R2, 0xffffffff", "HLT"), {"r2": 7}),
+    # --- фреймбуфер: окно 00f0oooo -----------------------------------------
+    (P("MOVI R0, 0xab", "STOREI R0, 0xf00000",                    # первый px
+       "LOADI R1, 0xf00000", "HLT"), {"r1": 0xAB}),
+    (P("MOVI R0, 0xf007ff", "MOVI R1, 0x11223344", "STORE R0, R1",  # последний
+       "LOAD R2, R0", "HLT"), {"r2": 0x44}),                     # байт обрезан
+    (P("MOVI R0, 0xf01000", "MOVI R1, 5", "STORE R0, R1",         # вне зоны ->
+       "LOAD R2, R0", "HLT"), {"r2": 5}),                        # обычный #M
+    (P("LOADI R1, 0xf00033", "HLT"), {"r1": 0}),                 # чтение нуля
 ])
 def test_units_lockstep(prog, checks):
     m, _ = lockstep(prog)
@@ -174,17 +182,18 @@ def test_trap_badop():
 
 
 def test_trap_noslot():
-    m, _ = None, None
     prog = P("JMP 5", "HLT")
     ref = RefEmu(prog)
     state = encode(ref.m)
     # эмулятор: шаг JMP, затем err:NOSLOT
     ref.step()
     assert not ref.step() and ref.m.st == "err:NOSLOT"
-    state, alive = advance_to_ph0(state)   # JMP 5 (PH:0 -> PH:0)
-    assert alive
-    state, alive = advance_to_ph0(state)   # выборка с PC=5 -> трап
+    # машина: jmp -> PH:2, fetch не находит слот -> трап (внутри advance)
+    state, alive = advance_to_ph0(state)
+    if alive:   # если PH:0 достигнут до трапа — ещё один цикл
+        state, alive = advance_to_ph0(state)
     assert not alive and "|ST:err:NOSLOT" in state
+    assert state == encode(ref.m)
 
 
 def test_fib20_g1a():
