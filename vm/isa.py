@@ -45,6 +45,7 @@ OPS = [
     Op(0x32, "JNE",    "dsi"),
     Op(0x33, "JLT",    "dsi"),   # unsigned <
     Op(0x34, "JGE",    "dsi"),   # unsigned >=
+    Op(0x50, "WR24",   "d"),    # R[d] &= 0x00ffffff (24-бит wrap EIR)
     Op(0x40, "PUTC",   "d"),
     Op(0x41, "GETC",   "d"),
     Op(0xFF, "HLT",    ""),

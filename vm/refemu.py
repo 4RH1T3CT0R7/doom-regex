@@ -11,8 +11,9 @@ from vm.statecodec import MachState
 
 
 class RefEmu:
-    def __init__(self, prog: list[Insn], inp: bytes = b""):
-        self.m = MachState(prog=list(prog), inp=inp)
+    def __init__(self, prog: list[Insn], inp: bytes = b"",
+                 ram: dict[int, int] | None = None):
+        self.m = MachState(prog=list(prog), inp=inp, ram=dict(ram or {}))
 
     def step(self) -> bool:
         """Исполняет одну инструкцию. False, если машина не в run."""
@@ -63,6 +64,8 @@ class RefEmu:
         elif op == "JGE":
             if R[d] >= R[s]:
                 nxt = imm
+        elif op == "WR24":
+            R[d] &= 0x00FFFFFF
         elif op == "PUTC":
             m.out += bytes([R[d] & 0xFF])
         elif op == "GETC":

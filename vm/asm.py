@@ -40,10 +40,12 @@ def _reg(tok: str, lineno: int) -> int:
     return r
 
 
-def assemble(src: str) -> list[Insn]:
-    # проход 1: метки
+def assemble_full(src: str) -> tuple[list[Insn], dict[int, int]]:
+    """-> (программа, начальная RAM из .mem-директив)."""
+    # проход 1: метки (+сбор .mem)
     labels: dict[str, int] = {}
     parsed: list[tuple[int, list[str]]] = []
+    ram: dict[int, int] = {}
     addr = 0
     for lineno, raw in enumerate(src.splitlines(), 1):
         toks = _tokenize(raw)
@@ -53,9 +55,18 @@ def assemble(src: str) -> list[Insn]:
                 raise AsmError(f"строка {lineno}: дубль метки {label!r}")
             labels[label] = addr
             toks = toks[1:]
-        if toks:
-            parsed.append((lineno, toks))
-            addr += 1
+        if not toks:
+            continue
+        if toks[0] == ".mem":
+            if len(toks) != 3:
+                raise AsmError(f"строка {lineno}: .mem addr value")
+            a = int(toks[1], 0) & WORD_MASK
+            v = int(toks[2], 0) & WORD_MASK
+            if v:
+                ram[a] = v
+            continue
+        parsed.append((lineno, toks))
+        addr += 1
 
     # проход 2: кодирование
     prog: list[Insn] = []
@@ -99,4 +110,8 @@ def assemble(src: str) -> list[Insn]:
         else:  # ""
             need(0)
             prog.append(Insn(op))
-    return prog
+    return prog, ram
+
+
+def assemble(src: str) -> list[Insn]:
+    return assemble_full(src)[0]

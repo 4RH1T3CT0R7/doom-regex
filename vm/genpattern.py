@@ -228,6 +228,12 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("jge_taken", HEAD_RUN0 + fetch(0x34, r"[0-7][0-7](?<imm>.{8})"),
               REP0 + "${imm}"))
 
+    # --- WR24: 24-битный wrap (обнуление старших 2 цифр за 1 проход) -------
+    R.append(("wr24",
+              HEAD_RUN0 + fetch(0x50, r"(?<d>[0-7]).{9}")
+              + rf"(?<pre>{FIELD}R(?P=d):).{{2}}",
+              REP1 + "${pc}${pre}00"))
+
     # --- I/O ----------------------------------------------------------------
     R.append(("putc",
               HEAD_RUN0 + fetch(0x40, r"(?<d>[0-7]).{9}")

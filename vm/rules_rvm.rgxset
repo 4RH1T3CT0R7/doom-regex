@@ -1,5 +1,5 @@
 #rgxset/1
-#sha256:a0aa7f26fc196a2aca75c2f2c464bffc532be76be727410bced37949071ab536
+#sha256:2c41f7cfa1821de7c8de56ba5f90a9a3f02dd98fe7b2c62f8e9115da837a094a
 #rule pcinc_d0
 P:\ARVM1\|ST:run\|PH:1\|PC:(?<p>.{7})(?<x>[0-9a-e])(?=(?:[^#]*+#)+?D[0-9a-f]*?(?P=x)(?<n>.))
 R:RVM1|ST:run|PH:0|PC:${p}${n}
@@ -99,6 +99,9 @@ R:RVM1|ST:run|PH:1|PC:${pc}
 #rule jge_taken
 P:\ARVM1\|ST:run\|PH:0\|PC:(?<pc>.{8})(?=(?:[^#]*+#)+?P[^#]*?I(?P=pc):34[0-7][0-7](?<imm>.{8});)
 R:RVM1|ST:run|PH:0|PC:${imm}
+#rule wr24
+P:\ARVM1\|ST:run\|PH:0\|PC:(?<pc>.{8})(?=(?:[^#]*+#)+?P[^#]*?I(?P=pc):50(?<d>[0-7]).{9};)(?<pre>(?:[^|#]*+\|)*?R(?P=d):).{2}
+R:RVM1|ST:run|PH:1|PC:${pc}${pre}00
 #rule putc
 P:\ARVM1\|ST:run\|PH:0\|PC:(?<pc>.{8})(?=(?:[^#]*+#)+?P[^#]*?I(?P=pc):40(?<d>[0-7]).{9};)(?=(?:[^|#]*+\|)*?R(?P=d):.{6}(?<b1>.)(?<b0>.))(?<pre>(?:[^|#]*+\|)*?OUT:[0-9a-f]*+)\|
 R:RVM1|ST:run|PH:1|PC:${pc}${pre}${b1}${b0}|
