@@ -27,7 +27,7 @@ from pathlib import Path
 
 import regex
 
-_GROUP_REF = _stdlib_re.compile(r"\$\{(\d+)\}")
+_GROUP_REF = _stdlib_re.compile(r"\$\{(\w+)\}")
 
 
 @dataclass

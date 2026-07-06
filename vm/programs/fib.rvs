@@ -1,0 +1,12 @@
+; fib(20) -> R0 (0x1a6d = 6765), гейт G1a
+        MOVI R0, 0          ; a = fib(0)
+        MOVI R1, 1          ; b = fib(1)
+        MOVI R2, 20         ; n
+        MOVI R3, 0          ; i
+loop:   JEQ  R3, R2, end
+        MOV  T,  R1         ; t = b
+        ADD  R1, R0         ; b = a+b
+        MOV  R0, T          ; a = t
+        ADDI R3, 1
+        JMP  loop
+end:    HLT

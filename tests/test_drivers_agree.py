@@ -26,6 +26,13 @@ pytestmark = pytest.mark.skipif(
     not RVM.exists(), reason="rvm.exe не собран (scripts/build_driver.sh)")
 
 
+from vm.asm import assemble                     # noqa: E402
+from vm.refemu import RefEmu                    # noqa: E402
+from vm.statecodec import encode                # noqa: E402
+
+RULES_RVM = ROOT / "vm" / "rules_rvm.rgxset"
+
+
 @pytest.mark.parametrize("name,code,inp", [
     ("hello", (ROOT / "bf" / "programs" / "hello.bf").read_text(), b""),
     ("cat", ",[.,]", b"regex!"),
@@ -34,13 +41,30 @@ pytestmark = pytest.mark.skipif(
 ])
 def test_drivers_agree(tmp_path, name, code, inp):
     state0 = make_state(code, inp)
+    _agree(tmp_path, name, RULES, state0)
+
+
+@pytest.mark.parametrize("name,src,inp", [
+    ("fib", "vm/programs/fib.rvs", b""),
+    ("echo", None, b"Hi"),
+])
+def test_drivers_agree_rvm(tmp_path, name, src, inp):
+    if src:
+        prog = assemble((ROOT / src).read_text(encoding="utf-8"))
+    else:
+        prog = assemble("GETC R0\nPUTC R0\nGETC R0\nPUTC R0\nHLT")
+    state0 = encode(RefEmu(prog, inp).m)
+    _agree(tmp_path, name, RULES_RVM, state0)
+
+
+def _agree(tmp_path, name, rules_path, state0):
     st_path = tmp_path / f"{name}.rvstate"
     save_state(st_path, state0, passes=0)
 
     # C-драйвер
     c_final_path = tmp_path / f"{name}_c.rvstate"
     proc = subprocess.run(
-        [str(RVM), "--rules", str(RULES), "--state", str(st_path),
+        [str(RVM), "--rules", str(rules_path), "--state", str(st_path),
          "--save-final", str(c_final_path), "--quiet",
          "--max-passes", "3000000"],
         capture_output=True)
@@ -48,7 +72,7 @@ def test_drivers_agree(tmp_path, name, code, inp):
     c_final = load_state(c_final_path)
 
     # Python-драйвер
-    rules = load_rgxset(RULES)
+    rules = load_rgxset(rules_path)
     py_final, _, py_reason = run(rules, state0,
                                  max_passes=3_000_000, echo_out=False)
 
