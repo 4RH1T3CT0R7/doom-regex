@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.rvstate -text
+*.rgx -text
+*.rgxset -text
+*.rvfb binary
+tests/golden/** binary
