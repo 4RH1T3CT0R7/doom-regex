@@ -123,6 +123,21 @@ def P(*lines):
     # псевдо
     (P("MOVI R0, 9", "MOVI R1, 3", "JGT R0, R1, 4", "MOVI R2, 1", "HLT"),
      {"r2": 0}),
+    # --- память: hit/miss/insert (first/middle/last), перезапись -----------
+    (P("MOVI R0, 0xabcd", "STOREI R0, 0x100", "LOADI R1, 0x100", "HLT"),
+     {"r1": 0xABCD}),
+    (P("LOADI R1, 0x77", "HLT"), {"r1": 0}),                    # miss -> 0
+    (P("MOVI R0, 1", "STOREI R0, 0x50",                          # вставки:
+       "MOVI R0, 2", "STOREI R0, 0x10",                          # в начало
+       "MOVI R0, 3", "STOREI R0, 0x90",                          # в конец
+       "MOVI R0, 4", "STOREI R0, 0x50",                          # перезапись
+       "LOADI R1, 0x10", "LOADI R2, 0x50", "LOADI R3, 0x90", "HLT"),
+     {"r1": 2, "r2": 4, "r3": 3}),
+    (P("MOVI R0, 0x200", "MOVI R1, 0xbeef", "STORE R0, R1",      # рег-адрес
+       "MOVI R2, 0x200", "LOAD R3, R2", "HLT"),
+     {"r3": 0xBEEF}),
+    (P("MOVI R0, 0xffffffff", "MOVI R1, 7", "STORE R0, R1",      # крайний адрес
+       "LOADI R2, 0xffffffff", "HLT"), {"r2": 7}),
 ])
 def test_units_lockstep(prog, checks):
     m, _ = lockstep(prog)

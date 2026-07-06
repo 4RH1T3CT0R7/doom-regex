@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from vm.isa import ROM, WORD_MASK, NUM_REGS, Insn, hexw
+from vm.isa import ROM, WORD_MASK, NUM_REGS, Insn, hexw, zone_l, zone_q
 
 
 @dataclass
@@ -29,10 +29,13 @@ def encode(m: MachState) -> str:
     regs = "".join(f"|R{i}:{hexw(m.regs[i])}" for i in range(NUM_REGS))
     prog = "".join(ins.encode(a) for a, ins in enumerate(m.prog))
     ram = "".join(f"[{hexw(a)}:{hexw(v)}]" for a, v in sorted(m.ram.items()))
+    # зеркала таблиц пар #q/#l ПОСЛЕ #M: lookahead смотрит только вперёд,
+    # а LT-проверки вставки выполняются из середины #M
+    mirror = "#q" + zone_q()[2:] + "#l" + zone_l()[2:]
     return (
         f"RVM1|ST:{m.st}|PH:{m.ph}|PC:{hexw(m.pc)}{regs}"
         f"|CLK:{hexw(m.clk)}|IN:{m.inp.hex()}|OUT:{m.out.hex()}|"
-        f"{ROM}#P{prog}#M{ram}#F{m.fb.hex()}#E"
+        f"{ROM}#P{prog}#M{ram}{mirror}#F{m.fb.hex()}#E"
     )
 
 

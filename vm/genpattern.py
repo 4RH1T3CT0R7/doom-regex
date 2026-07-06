@@ -77,6 +77,27 @@ def consume_dst() -> str:
     return rf"(?<pre>{FIELD}R(?P=d):).{{8}}"
 
 
+def lt_mirror(a: str, b: str) -> str:
+    """a < b по цифрам через ЗЕРКАЛА таблиц #q/#l (лежат после #M:
+    lookahead смотрит только вперёд, а проверка идёт из середины #M)."""
+    branches = []
+    for k in range(7, -1, -1):
+        eqs = "".join(
+            rf"(?={HOP}q[^#]*?:(?P={a}{j})(?P={b}{j}))"
+            for j in range(7, k, -1))
+        branches.append(eqs + rf"(?={HOP}l[^#]*?:(?P={a}{k})(?P={b}{k}))")
+    return "(?:" + "|".join(branches) + ")"
+
+
+def cell_lt_loop(b: str) -> str:
+    """Possessive-цикл: потребить все RAM-ячейки с адресом СТРОГО МЕНЬШЕ
+    вектора цифр b7..b0. Останавливается на первой не-меньшей ячейке или
+    границе зоны. Равная ячейка исключена порядком правил (hit раньше)."""
+    cell = ("\\[" + "".join(rf"(?<a{i}>.)" for i in range(7, -1, -1))
+            + r":.{8}\]")
+    return rf"(?:{cell}{lt_mirror('a', b)})*+"
+
+
 def build_rules() -> list[tuple[str, str, str]]:
     R: list[tuple[str, str, str]] = []
 
@@ -118,6 +139,53 @@ def build_rules() -> list[tuple[str, str, str]]:
                   + read_reg(r"(?P=d)", digits("d"))
                   + adder_chain(table) + consume_dst(),
                   REP1 + "${pc}${pre}" + out_digits()))
+
+    # --- память: hit-правила раньше miss/insert (исключают «равно») --------
+    imm_digits = ("(?<imm>" + "".join(rf"(?<i{i}>.)" for i in range(7, -1, -1))
+                  + ")")
+    R.append(("loadi_hit",
+              HEAD_RUN0 + fetch(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
+              + rf"(?={HOP}M[^#]*?\[(?P=imm):(?<mv>.{{8}})\])"
+              + consume_dst(),
+              REP1 + "${pc}${pre}${mv}"))
+    R.append(("loadi_miss",
+              HEAD_RUN0 + fetch(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
+              + consume_dst(),
+              REP1 + "${pc}${pre}00000000"))
+    R.append(("load_hit",
+              HEAD_RUN0 + fetch(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", r"(?<addr>.{8})")
+              + rf"(?={HOP}M[^#]*?\[(?P=addr):(?<mv>.{{8}})\])"
+              + consume_dst(),
+              REP1 + "${pc}${pre}${mv}"))
+    R.append(("load_miss",
+              HEAD_RUN0 + fetch(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + consume_dst(),
+              REP1 + "${pc}${pre}00000000"))
+    R.append(("storei_hit",
+              HEAD_RUN0 + fetch(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
+              + read_reg(r"(?P=d)", r"(?<v>.{8})")
+              + rf"(?<pre>{HOP}M[^#]*?\[(?P=imm):).{{8}}",
+              REP1 + "${pc}${pre}${v}"))
+    R.append(("storei_ins",
+              HEAD_RUN0 + fetch(0x23, r"(?<d>[0-7])." + imm_digits)
+              + read_reg(r"(?P=d)", r"(?<v>.{8})")
+              + rf"(?<pre>{HOP}M{cell_lt_loop('i')})",
+              REP1 + "${pc}${pre}[${imm}:${v}]"))
+    R.append(("store_hit",
+              HEAD_RUN0 + fetch(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=d)", r"(?<addr>.{8})")
+              + read_reg(r"(?P=s)", r"(?<v>.{8})")
+              + rf"(?<pre>{HOP}M[^#]*?\[(?P=addr):).{{8}}",
+              REP1 + "${pc}${pre}${v}"))
+    R.append(("store_ins",
+              HEAD_RUN0 + fetch(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=d)",
+                         "(?<addr>" + "".join(
+                             rf"(?<i{i}>.)" for i in range(7, -1, -1)) + ")")
+              + read_reg(r"(?P=s)", r"(?<v>.{8})")
+              + rf"(?<pre>{HOP}M{cell_lt_loop('i')})",
+              REP1 + "${pc}${pre}[${addr}:${v}]"))
 
     # --- переходы -----------------------------------------------------------
     R.append(("jmp", HEAD_RUN0 + fetch(0x30, r"..(?<imm>.{8})"),
