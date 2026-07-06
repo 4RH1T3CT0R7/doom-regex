@@ -16,6 +16,7 @@ MODE="${1:-timedemo}"    # timedemo | interactive
 CFLAGS=(-S -D__eir__ -DINT_MIN=-16777216 -DSHRT_MAX=32767 -DEISDIR=21
         -DSEEK_SET=0 -DSEEK_END=2
         -DDOOMGENERIC_RESX=320 -DDOOMGENERIC_RESY=200
+        -I"$REPO/doom"
         -I"$BFD/ports/elvm-libc" -I"$ELVM" -I"$ELVM/libc" -I"$ELVM/out"
         -I"$DOOM")
 if [ "$MODE" = "timedemo" ]; then
@@ -53,6 +54,7 @@ if bad in t:
 PYEOF
 
 py -3.11 "$REPO/doom/make_runtime.py" "$BFD" -o "$BUILD/runtime_rvm.c"
+py -3.11 "$REPO/doom/apply_port_patches.py" "$DOOM"
 
 cd "$ELVM"
 fail=0
@@ -65,11 +67,14 @@ done
 ./out/8cc "${CFLAGS[@]}" -o "$BUILD/doomgeneric_rvm.eir" \
   "$REPO/doom/doomgeneric_rvm.c" > "$BUILD/doomgeneric_rvm.log" 2>&1 \
   || { echo "FAIL doomgeneric_rvm"; fail=1; }
+./out/8cc "${CFLAGS[@]}" -o "$BUILD/rvm_lumps.eir" \
+  "$REPO/doom/rvm_lumps.c" > "$BUILD/rvm_lumps.log" 2>&1 \
+  || { echo "FAIL rvm_lumps"; fail=1; }
 [ "$fail" = 0 ] || exit 1
 
 # runtime первым (как у BFDoom), платформенный слой последним
 py -3.11 "$REPO/doom/link_eir.py" -o "$OUT/build/doom-rvm.eir" \
-  "$BUILD/runtime_rvm.eir" \
+  "$BUILD/runtime_rvm.eir" "$BUILD/rvm_lumps.eir" \
   $(for b in "${SOURCES[@]}"; do echo "$BUILD/$b.eir"; done) \
   "$BUILD/doomgeneric_rvm.eir"
 echo "OK: $OUT/build/doom-rvm.eir ($MODE)"
