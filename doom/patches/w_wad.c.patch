@@ -1,0 +1,53 @@
+--- /tmp/dg-upstream/doomgeneric/w_wad.c	2026-07-07 01:36:34.063246900 +0300
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/w_wad.c	2026-07-07 02:07:41.256687000 +0300
+@@ -182,7 +182,19 @@
+     else 
+     {
+     	// WAD file
++#ifdef __eir__
++        /* ELVM: sizeof(int)==1 => структуры не совпадают с раскладкой
++         * файла; распаковываем заголовок побайтово (12 байт на диске) */
++        {
++            unsigned char hb[12];
++            W_Read(wad_file, 0, hb, 12);
++            memcpy(header.identification, hb, 4);
++            header.numlumps = hb[4] + (hb[5] << 8) + (hb[6] << 16);
++            header.infotableofs = hb[8] + (hb[9] << 8) + (hb[10] << 16);
++        }
++#else
+         W_Read(wad_file, 0, &header, sizeof(header));
++#endif
+ 
+ 		if (strncmp(header.identification,"IWAD",4))
+ 		{
+@@ -198,10 +210,30 @@
+ 
+ 		header.numlumps = LONG(header.numlumps);
+ 		header.infotableofs = LONG(header.infotableofs);
++#ifdef __eir__
++        /* каталог: 16 байт на запись на диске -> распаковка в структуры */
++        {
++            unsigned char *db;
++            int di;
++            length = header.numlumps * 16;
++            db = Z_Malloc(length, PU_STATIC, 0);
++            W_Read(wad_file, header.infotableofs, db, length);
++            fileinfo = Z_Malloc(header.numlumps * sizeof(filelump_t),
++                                PU_STATIC, 0);
++            for (di = 0; di < header.numlumps; di++) {
++                unsigned char *e = db + di * 16;
++                fileinfo[di].filepos = e[0] + (e[1] << 8) + (e[2] << 16);
++                fileinfo[di].size = e[4] + (e[5] << 8) + (e[6] << 16);
++                memcpy(fileinfo[di].name, e + 8, 8);
++            }
++            Z_Free(db);
++        }
++#else
+ 		length = header.numlumps*sizeof(filelump_t);
+ 		fileinfo = Z_Malloc(length, PU_STATIC, 0);
+ 
+         W_Read(wad_file, header.infotableofs, fileinfo, length);
++#endif
+         newnumlumps += header.numlumps;
+     }
+ 
