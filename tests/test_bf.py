@@ -61,11 +61,17 @@ def machine_output(final_state: str) -> bytes:
     ("[.]", b""),                    # пропуск цикла при нуле
     ("++[>+<-]>.", b"\x02"),         # перенос значения
     ("+[[-]].", b"\x00"),            # вложенные скобки: пропуск/вход
+    # --- находки ревью G0: глубина/смежность/прыжки назад ---
+    ("++[>++[>++[>+<-]<-]<-]>>>.", b"\x08"),  # вложенность 3 уровня
+    ("[][]+++.", b"\x03"),           # смежные пустые циклы при нуле
+    ("+[-]+[>+<-]>.", b"\x01"),      # прыжок назад через завершённый цикл
+    ("+[-[]].", b"\x00"),            # пустой вложенный цикл (пропуск при нуле)
 ])
 def test_basics_vs_oracle(code, expected):
     assert run_bf(code) == expected, "оракул не согласен с ожиданием теста"
     final, _, reason = run_machine(code)
     assert reason == "hlt", f"машина не остановилась чисто: {reason}\n{final[:200]}"
+    assert "ST:err:WEDGE" not in final  # тотальность: wedge не должен стрелять
     assert machine_output(final) == expected
 
 
@@ -99,10 +105,15 @@ def test_hello_world():
     print(f"\nhello.bf: {passes} passes")
 
 
-def test_left_edge_traps():
+@pytest.mark.parametrize("code", [
+    "<",            # голый underflow
+    ">+<<.",        # underflow с хвостом кода и ненулевым соседом (ревью G0)
+    "+>+[<]",       # underflow при скане влево
+])
+def test_left_edge_traps(code):
     with pytest.raises(TapeError):
-        run_bf("<")
-    final, _, reason = run_machine("<")
+        run_bf(code)
+    final, _, reason = run_machine(code)
     assert reason == "err"
     assert "|ST:err:TAPE" in final
 

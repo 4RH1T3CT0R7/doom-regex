@@ -63,6 +63,10 @@ def load_rgxset(path: Path) -> list[Rule]:
         name = line[len("#rule "):]
         pat_line, repl_line = lines[i + 1], lines[i + 2]
         assert pat_line.startswith("P:") and repl_line.startswith("R:")
+        if not pat_line[2:].startswith(r"\A"):
+            # верность модели Маркова: global-sub == одна левейшая замена
+            # только для \A-заякоренных паттернов
+            raise ValueError(f"{path}: правило '{name}' без \\A-якоря")
         pattern = regex.compile(pat_line[2:])
         repl = _GROUP_REF.sub(r"\\g<\1>", repl_line[2:])
         rules.append(Rule(name, pattern, repl))
