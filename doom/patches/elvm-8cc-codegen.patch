@@ -1,0 +1,75 @@
+diff --git a/vendor/elvm/8cc/gen.c b/vendor/elvm/8cc/gen.c
+index 841b5b0..1406caa 100644
+--- a/vendor/elvm/8cc/gen.c
++++ b/vendor/elvm/8cc/gen.c
+@@ -395,6 +395,16 @@ static void emit_comp(char *inst, Node *node) {
+         emit("mov B, A");
+         pop("A");
+     }
++    // RVM-порт: EIR-сравнения беззнаковые; для ЗНАКОВЫХ целых типов
++    // применяем bias-трюк: slt(a,b) == ult(a+2^23, b+2^23) (mod 2^24).
++    // eq/ne от bias не зависят; указатели/unsigned — без смещения.
++    if ((!strcmp(inst, "lt") || !strcmp(inst, "le") ||
++         !strcmp(inst, "gt") || !strcmp(inst, "ge")) &&
++        is_inttype(node->left->ty) && !node->left->ty->usig &&
++        is_inttype(node->right->ty) && !node->right->ty->usig) {
++        emit("add A, 8388608");
++        emit("add B, 8388608");
++    }
+     emit("%s A, B", inst);
+ }
+ 
+@@ -480,6 +490,25 @@ static void emit_ret() {
+ 
+ static void emit_binop(Node *node) {
+     SAVE;
++    // RVM-порт: p1 - p2 обязана давать число ЭЛЕМЕНТОВ (деление на размер
++    // указуемого типа); штатно возвращалась словная разность.
++    if (node->kind == '-' && node->left->ty->kind == KIND_PTR &&
++        node->right->ty->kind == KIND_PTR &&
++        node->left->ty->ptr && node->left->ty->ptr->size > 1) {
++        emit_expr(node->left);
++        push("A");
++        emit_expr(node->right);
++        emit("mov B, A");
++        pop("A");
++        emit("sub A, B");
++        emit("mov B, %d", node->left->ty->ptr->size);
++        push("B");
++        push("A");
++        emit_call_builtin("__builtin_div");
++        emit("add SP, 2");
++        stackpos -= 3;
++        return;
++    }
+     if (node->ty->kind == KIND_PTR) {
+         emit_pointer_arith(node->kind, node->left, node->right);
+         return;
+@@ -611,9 +640,17 @@ static void emit_decl_init(Vector *inits, int off, int totalsize) {
+     }
+ }
+ 
++// RVM-порт: инкремент/декремент указателя обязан шагать на размер
++// указуемого типа (для sizeof>1 штатный "1" ломал все ptr++ по структурам).
++static int incdec_step(Node *node) {
++    if (node->ty->kind == KIND_PTR && node->ty->ptr)
++        return node->ty->ptr->size;
++    return 1;
++}
++
+ static void emit_pre_inc_dec(Node *node, char *op) {
+     emit_expr(node->operand);
+-    emit("%s A, 1", op);
++    emit("%s A, %d", op, incdec_step(node));
+     emit_store(node->operand);
+ }
+ 
+@@ -621,7 +658,7 @@ static void emit_post_inc_dec(Node *node, char *op) {
+     SAVE;
+     emit_expr(node->operand);
+     push("A");
+-    emit("%s A, 1", op);
++    emit("%s A, %d", op, incdec_step(node));
+     emit_store(node->operand);
+     pop("A");
+ }
