@@ -5,9 +5,16 @@
 #ifndef RVM_LUMPS_H
 #define RVM_LUMPS_H
 
+#define RVM_WAD_BASE 0xa00000   /* [.]=размер, [+1..]=байты WAD (см. runtime) */
+
 int RU_u16(const void *p);
 int RU_i16(const void *p);
 int RU_i32(const void *p);   /* 24 бита достаточно: смещения в лампах < 16М */
+
+/* Прямое чтение len байт WAD по абсолютному offset в dest. Надёжнее пути
+ * fseek+fread (структура wad_file на ELVM хранит fstream по смещению,
+ * ломающему позиционирование). */
+void RU_WadRead(unsigned int offset, void *dest, int len);
 
 /* Конвертирует patch-ламп из дисковой упаковки в словную раскладку ELVM
  * (заголовок + columnofs, указывающие в приложенную сырую копию).

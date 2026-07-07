@@ -113,6 +113,49 @@ def main() -> None:
     assert fread_proto in text
     text = text.replace(fread_proto, FREAD_COPY)
 
+    # В нашем порту единственный «файл» — WAD в памяти. Ветка fp!=BFIO_FILE
+    # (чтение через fgetc/getchar) ненадёжна: fstream может прочитаться по
+    # неверному смещению структуры -> чтение уходит в getchar -> EOF -> мусор.
+    # Все файловые чтения — из WAD-памяти безусловно; getchar остаётся только
+    # за вводом (DG_GetKey).
+    fread_branch = '''  if (fp != BFIO_FILE) {
+    for (; got < total; got++) {
+      int c = fgetc(fp);
+      if (c == EOF) {
+        break;
+      }
+      out[got] = c;
+    }
+    return got / size;
+  }
+'''
+    assert fread_branch in text, "не найдена ветка fp!=BFIO_FILE в fread"
+    text = text.replace(fread_branch, "  (void) got;\n")
+
+    # fseek/ftell: тоже убираем проверку fp (структура wad_file на ELVM может
+    # хранить fstream по смещению, дающему !=BFIO_FILE). Единственный файл —
+    # WAD, поэтому позиция всегда относится к нему.
+    fseek_guard = '''int fseek(FILE *fp, int offset, int whence) {
+  if (fp != BFIO_FILE) {
+    return 0;
+  }
+'''
+    assert fseek_guard in text, "не найдена проверка fp в fseek"
+    text = text.replace(fseek_guard,
+                        "int fseek(FILE *fp, int offset, int whence) {\n"
+                        "  (void) fp;\n")
+
+    ftell_guard = '''int ftell(FILE *fp) {
+  if (fp == BFIO_FILE) {
+    return wad_pos;
+  }
+  return 0;
+}'''
+    assert ftell_guard in text, "не найдена проверка fp в ftell"
+    text = text.replace(ftell_guard,
+                        "int ftell(FILE *fp) {\n  (void) fp;\n"
+                        "  return wad_pos;\n}")
+
     assert "bfio_" not in text and "bfhost_" not in text, "остатки протокола"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

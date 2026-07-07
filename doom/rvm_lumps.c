@@ -5,6 +5,15 @@
 
 #include "rvm_lumps.h"
 
+void RU_WadRead(unsigned int offset, void *dest, int len) {
+    const char *src = (const char *) (RVM_WAD_BASE + 1) + offset;
+    char *out = dest;
+    int i;
+    for (i = 0; i < len; i++) {
+        out[i] = src[i];
+    }
+}
+
 int RU_u16(const void *p) {
     const unsigned char *b = p;
     return b[0] + (b[1] << 8);
