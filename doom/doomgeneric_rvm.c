@@ -12,10 +12,16 @@
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "doomgeneric.h"
 
 extern unsigned char *I_VideoBuffer;   /* 320x200, палитровые индексы */
+extern int gamestate;
+extern int gametic;
+extern int viewheight;
+extern int viewwidth;
+extern int automapactive;
 
 #define RVM_FB_BASE 0xf00000
 #define RVM_FB_PIXELS 64000            /* 320*200 */
@@ -30,6 +36,18 @@ void DG_DrawFrame() {
   for (i = 0; i < RVM_FB_PIXELS; i++) {
     dst[i] = src[i];
   }
+#ifdef RVM_DUMP_FRAME
+  {
+    static int fc = 0;
+    fc++;
+    if (fc == RVM_DUMP_FRAME) {
+      /* маркер + 64000 палитровых индексов, затем выход */
+      putchar('D'); putchar('U'); putchar('M'); putchar('P'); putchar(':');
+      for (i = 0; i < RVM_FB_PIXELS; i++) putchar(src[i]);
+      exit(0);
+    }
+  }
+#endif
 #ifdef RVM_FRAME_CHECKSUM
   {
     int s1 = 0, s2 = 0;
@@ -71,7 +89,11 @@ void DG_SetWindowTitle(const char *title) {
 }
 
 int main() {
-#ifdef RVM_TIMEDEMO
+#if defined(RVM_WARP)
+  /* -warp 1 1 => autostart=true => D_DoomMain грузит E1M1, минуя attract */
+  char *argv[] = {"doom", "-iwad", "doom1.wad", "-warp", "1", "1", 0};
+  doomgeneric_Create(6, argv);
+#elif defined(RVM_TIMEDEMO)
   char *argv[] = {"doom", "-iwad", "doom1.wad", "-timedemo", "demo1", 0};
   doomgeneric_Create(5, argv);
 #else
