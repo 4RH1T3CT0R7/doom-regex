@@ -14,19 +14,24 @@ BIN="$OUT/build/doom-rvm-native.exe"
 export PATH="/usr/bin:$PATH"
 "$ELVM/out/elc" -c "$EIR" > "$CFILE"
 
-# небуферизованный stdout (вывод идёт в файл -> иначе полная буферизация)
+# tier-1 native: (1) небуферизованный stdout (вывод в файл иначе буферизуется);
+# (2) stdin в BINARY mode — Windows text mode схлопывает \r\n и теряет байты
+# нибл-потока WAD (значения 10=\n, 13=\r встречаются в кодировке).
 py -3.11 - "$CFILE" <<'PYEOF'
 import sys
 from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
-needle = "int main() {\n mem[0] = 8388608;"
 if "setvbuf" not in t:
+    t = "#include <fcntl.h>\n#include <io.h>\n" + t
+    needle = "int main() {\n mem[0] = 8388608;"
     t = t.replace(needle,
-                  "int main() {\n setvbuf(stdout, 0, _IONBF, 0);\n"
+                  "int main() {\n"
+                  " _setmode(_fileno(stdin), _O_BINARY);\n"
+                  " setvbuf(stdout, 0, _IONBF, 0);\n"
                   " mem[0] = 8388608;", 1)
     p.write_text(t)
-    print("setvbuf вставлен")
+    print("setvbuf + stdin binary mode вставлены")
 PYEOF
 
 gcc -O1 -o "$BIN" "$CFILE"
