@@ -1,5 +1,5 @@
 --- /tmp/dg-upstream/doomgeneric/r_data.c	2026-07-07 01:36:34.042893900 +0300
-+++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/r_data.c	2026-07-07 06:18:12.978421600 +0300
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/r_data.c	2026-07-07 14:33:46.796307500 +0300
 @@ -1,3 +1,4 @@
 +#include "rvm_lumps.h"
  //
@@ -105,7 +105,24 @@
  	    if (patch->patch == -1)
  	    {
  		I_Error ("R_InitTextures: Missing patch in texture %s",
-@@ -671,9 +672,9 @@
+@@ -604,15 +605,13 @@
+ 		
+ 	totalwidth += texture->width;
+     }
+-
+     Z_Free(patchlookup);
+ 
+     W_ReleaseLumpName(DEH_String("TEXTURE1"));
+     if (maptex2)
+         W_ReleaseLumpName(DEH_String("TEXTURE2"));
+     
+-    // Precalculate whatever possible.	
+-
++    // Precalculate whatever possible.
+     for (i=0 ; i<numtextures ; i++)
+ 	R_GenerateLookup (i);
+     
+@@ -671,9 +670,9 @@
  	    printf (".");
  
  	patch = W_CacheLumpNum (firstspritelump+i, PU_CACHE);

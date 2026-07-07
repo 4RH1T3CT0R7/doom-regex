@@ -36,8 +36,8 @@ SOURCES=(dummy am_map doomdef doomstat dstrings d_event d_items d_iwad d_loop
 mkdir -p "$BUILD"
 
 # честный memset: BFDoom инжектит bfhost_fill_words (host-side fill) в
-# vendored libc/string.h — возвращаем чистый C-цикл (идемпотентно)
-py -3.11 - "$ELVM/libc/string.h" <<'PYEOF'
+# vendored libc/string.h — заменяем на чистый C-цикл (идемпотентно).
+py -3.11 - "$ELVM/libc/string.h" <<'PYEOF2'
 import sys
 from pathlib import Path
 p = Path(sys.argv[1])
@@ -48,10 +48,14 @@ bad = """#ifdef __eir__
 #else
 """
 if bad in t:
-    t = t.replace(bad, "#if 0\n")
+    t = t.replace(bad, """#ifdef __eir__
+  { size_t _i; for (_i = 0; _i < n; _i++) ((char*)d)[_i] = c; }
+  return d;
+#else
+""")
     p.write_text(t, encoding="utf-8")
-    print("string.h: memset возвращён к честному циклу")
-PYEOF
+    print("string.h: memset -> честный __eir__ цикл")
+PYEOF2
 
 py -3.11 "$REPO/doom/make_runtime.py" "$BFD" -o "$BUILD/runtime_rvm.c"
 py -3.11 "$REPO/doom/apply_port_patches.py" "$DOOM"
