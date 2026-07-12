@@ -6,8 +6,8 @@
     (границы — метки и инструкции переходов);
   * метки .text -> pc блока; метки .data -> адрес слова данных;
   * цель у переходов — ПЕРВЫЙ аргумент (`jeq target, dst, src`);
-  * слова 24-битные: после ADD/SUB эмитим WR24 (маска 0xffffff),
-    иммедиаты маскируются при трансляции.
+  * слова 32-битные (G2b: тулчейн ELVM переведён на 32-бит — Doom
+    fixed_t 16.16 не влезал в 24 бита); wrap mod 2^32 у RVM нативный.
 
 Register-indirect переходы: регистры хранят EIR-pc; в начале программы —
 ТРАМПЛИН-ТАБЛИЦА (слот i = JMP на блок i), так что `JMPR r` прыгает в
@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-M24 = 0xFFFFFF
+M24 = 0xFFFFFFFF   # слова 32-бит (были 24)
 REGMAP = {"A": "R0", "B": "R1", "C": "R2", "D": "R3", "SP": "R4", "BP": "R5"}
 SCRATCH = "R7"
 
@@ -192,7 +192,7 @@ def translate(eir_text: str) -> str:
             k, x = resolve(args[1])
             mnem = op.upper() + ("" if k == "reg" else "I")
             emit(f"    {mnem} {d}, {REGMAP[x] if k == 'reg' else x}")
-            emit(f"    WR24 {d}")
+            # 32-битные слова: wrap mod 2^32 у RVM нативный, WR24 не нужен
         elif op == "load":
             d = REGMAP[args[0]]
             k, x = resolve(args[1])

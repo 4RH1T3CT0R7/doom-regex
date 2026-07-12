@@ -13,7 +13,7 @@ DOOM="$BFD/vendor/doomgeneric/doomgeneric"
 BUILD="$OUT/build/doom"
 MODE="${1:-timedemo}"    # timedemo | interactive
 
-CFLAGS=(-S -D__eir__ -DINT_MIN=-16777216 -DSHRT_MAX=32767 -DEISDIR=21
+CFLAGS=(-S -D__eir__ '-DINT_MIN=(-2147483647-1)' -DSHRT_MAX=32767 -DEISDIR=21
         -DSEEK_SET=0 -DSEEK_END=2
         -DDOOMGENERIC_RESX=320 -DDOOMGENERIC_RESY=200
         -I"$REPO/doom"

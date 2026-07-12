@@ -1,0 +1,77 @@
+--- /tmp/dg-upstream/doomgeneric/m_fixed.c	2026-07-07 01:36:34.017698100 +0300
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/m_fixed.c	2026-07-12 18:04:19.564153300 +0300
+@@ -30,19 +30,49 @@
+ 
+ // Fixme. __USE_C_FIXED__ or something.
+ 
++/* RVM/ELVM: нет int64_t. FixedMul через 16-битные колонки 32x32->средние
++ * 32 бита (all intermediates < 2^32). (a*b)>>16 с восстановлением знака. */
+ fixed_t
+ FixedMul
+ ( fixed_t	a,
+   fixed_t	b )
+ {
+-    return ((int64_t) a * (int64_t) b) >> FRACBITS;
++    int sign = 0;
++    unsigned int ua, ub;
++    unsigned int al, ah, bl, bh, ll, lh, hl, hh, c1, c2, res;
++    if (a < 0) { ua = (unsigned int)(-a); sign ^= 1; } else ua = (unsigned int)a;
++    if (b < 0) { ub = (unsigned int)(-b); sign ^= 1; } else ub = (unsigned int)b;
++    al = ua & 0xffff; ah = ua >> 16;
++    bl = ub & 0xffff; bh = ub >> 16;
++    ll = al * bl;  lh = al * bh;  hl = ah * bl;  hh = ah * bh;
++    c1 = (ll >> 16) + (lh & 0xffff) + (hl & 0xffff);
++    c2 = (c1 >> 16) + (lh >> 16) + (hl >> 16) + (hh & 0xffff);
++    res = (c1 & 0xffff) + ((c2 & 0xffff) << 16);
++    /* арифметический >>16 округляет к -inf: у отрицательного результата с
++     * ненулевыми сдвинутыми битами (ll&0xffff) прибавляем 1 к модулю */
++    if (sign) {
++        if (ll & 0xffff) res += 1;
++        return -(fixed_t)res;
++    }
++    return (fixed_t)res;
+ }
+ 
+ 
+-
+-//
+-// FixedDiv, C version.
+-//
++/* FixedDiv: (a<<16)/b через 48/32 restoring-деление (нет int64_t). */
++static unsigned int rvm_div48(unsigned int nhi, unsigned int nlo,
++                              unsigned int d)
++{
++    unsigned int rem = 0, quot = 0, bit;
++    int i;
++    /* биты 47..0: старшие 16 из nhi, младшие 32 из nlo */
++    for (i = 47; i >= 0; i--) {
++        if (i >= 32) bit = (nhi >> (i - 32)) & 1u;
++        else         bit = (nlo >> i) & 1u;
++        rem = (rem << 1) | bit;
++        if (rem >= d) { rem -= d; if (i < 32) quot += (1u << i); }
++    }
++    return quot;
++}
+ 
+ fixed_t FixedDiv(fixed_t a, fixed_t b)
+ {
+@@ -52,11 +82,14 @@
+     }
+     else
+     {
+-	int64_t result;
+-
+-	result = ((int64_t) a << 16) / b;
+-
+-	return (fixed_t) result;
++	int sign = 0;
++	unsigned int ua, ub, nhi, nlo, q;
++	if (a < 0) { ua = (unsigned int)(-a); sign ^= 1; } else ua = (unsigned int)a;
++	if (b < 0) { ub = (unsigned int)(-b); sign ^= 1; } else ub = (unsigned int)b;
++	nhi = ua >> 16;            /* (ua<<16) старшие биты */
++	nlo = ua << 16;            /* (ua<<16) младшие 32   */
++	q = rvm_div48(nhi, nlo, ub);
++	return sign ? -(fixed_t)q : (fixed_t)q;
+     }
+ }
+ 

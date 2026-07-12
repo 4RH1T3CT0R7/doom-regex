@@ -1,0 +1,370 @@
+diff --git a/vendor/elvm/8cc/gen.c b/vendor/elvm/8cc/gen.c
+index 841b5b0..36bd30c 100644
+--- a/vendor/elvm/8cc/gen.c
++++ b/vendor/elvm/8cc/gen.c
+@@ -42,7 +42,7 @@ static void emit_data(Node *v, int off, int depth);
+ #ifdef __eir__
+ #define MOD24(x) x
+ #else
+-#define MOD24(x) (x & 0xffffff)
++#define MOD24(x) (x & 0xffffffffu)  /* 32-bit words */
+ #endif
+ 
+ #ifdef __GNUC__
+@@ -395,6 +395,16 @@ static void emit_comp(char *inst, Node *node) {
+         emit("mov B, A");
+         pop("A");
+     }
++    // RVM-порт: EIR-сравнения беззнаковые; для ЗНАКОВЫХ целых типов
++    // применяем bias-трюк: slt(a,b) == ult(a+2^23, b+2^23) (mod 2^24).
++    // eq/ne от bias не зависят; указатели/unsigned — без смещения.
++    if ((!strcmp(inst, "lt") || !strcmp(inst, "le") ||
++         !strcmp(inst, "gt") || !strcmp(inst, "ge")) &&
++        is_inttype(node->left->ty) && !node->left->ty->usig &&
++        is_inttype(node->right->ty) && !node->right->ty->usig) {
++        emit("add A, -2147483648");
++        emit("add B, -2147483648");
++    }
+     emit("%s A, B", inst);
+ }
+ 
+@@ -480,6 +490,25 @@ static void emit_ret() {
+ 
+ static void emit_binop(Node *node) {
+     SAVE;
++    // RVM-порт: p1 - p2 обязана давать число ЭЛЕМЕНТОВ (деление на размер
++    // указуемого типа); штатно возвращалась словная разность.
++    if (node->kind == '-' && node->left->ty->kind == KIND_PTR &&
++        node->right->ty->kind == KIND_PTR &&
++        node->left->ty->ptr && node->left->ty->ptr->size > 1) {
++        emit_expr(node->left);
++        push("A");
++        emit_expr(node->right);
++        emit("mov B, A");
++        pop("A");
++        emit("sub A, B");
++        emit("mov B, %d", node->left->ty->ptr->size);
++        push("B");
++        push("A");
++        emit_call_builtin("__builtin_div");
++        emit("add SP, 2");
++        stackpos -= 3;
++        return;
++    }
+     if (node->ty->kind == KIND_PTR) {
+         emit_pointer_arith(node->kind, node->left, node->right);
+         return;
+@@ -611,9 +640,17 @@ static void emit_decl_init(Vector *inits, int off, int totalsize) {
+     }
+ }
+ 
++// RVM-порт: инкремент/декремент указателя обязан шагать на размер
++// указуемого типа (для sizeof>1 штатный "1" ломал все ptr++ по структурам).
++static int incdec_step(Node *node) {
++    if (node->ty->kind == KIND_PTR && node->ty->ptr)
++        return node->ty->ptr->size;
++    return 1;
++}
++
+ static void emit_pre_inc_dec(Node *node, char *op) {
+     emit_expr(node->operand);
+-    emit("%s A, 1", op);
++    emit("%s A, %d", op, incdec_step(node));
+     emit_store(node->operand);
+ }
+ 
+@@ -621,7 +658,7 @@ static void emit_post_inc_dec(Node *node, char *op) {
+     SAVE;
+     emit_expr(node->operand);
+     push("A");
+-    emit("%s A, 1", op);
++    emit("%s A, %d", op, incdec_step(node));
+     emit_store(node->operand);
+     pop("A");
+ }
+diff --git a/vendor/elvm/ir/eli.c b/vendor/elvm/ir/eli.c
+index 0084ca3..458bd4b 100644
+--- a/vendor/elvm/ir/eli.c
++++ b/vendor/elvm/ir/eli.c
+@@ -14,8 +14,8 @@
+ 
+ int pc;
+ Inst* prog[65536];
+-int mem[MEMSZ];
+-int regs[6];
++unsigned int mem[MEMSZ];
++unsigned int regs[6];
+ bool verbose;
+ 
+ #ifdef __GNUC__
+@@ -62,8 +62,8 @@ static int cmp(Inst* inst) {
+   if (op >= 16)
+     op -= 8;
+   assert(inst->dst.type == REG);
+-  int d = regs[inst->dst.reg];
+-  int s = src(inst);
++  unsigned int d = regs[inst->dst.reg];
++  unsigned int s = (unsigned int) src(inst);
+   switch (op) {
+     case JEQ:
+       return d == s;
+@@ -130,45 +130,35 @@ int main(int argc, char* argv[]) {
+ 
+         case ADD:
+           assert(inst->dst.type == REG);
+-          regs[inst->dst.reg] += src(inst);
+-          regs[inst->dst.reg] += MEMSZ;
+-          regs[inst->dst.reg] %= MEMSZ;
++          regs[inst->dst.reg] += src(inst);   /* natural mod 2^32 */
+           break;
+ 
+         case SUB:
+           assert(inst->dst.type == REG);
+-          regs[inst->dst.reg] -= src(inst);
+-          regs[inst->dst.reg] += MEMSZ;
+-          regs[inst->dst.reg] %= MEMSZ;
++          regs[inst->dst.reg] -= src(inst);   /* natural mod 2^32 */
+           break;
+ 
+         case LOAD: {
+           assert(inst->dst.type == REG);
+-          int addr = src(inst);
+-          if (addr < 0)
+-            error("zero page load");
++          unsigned int addr = ((unsigned int) src(inst)) & (MEMSZ - 1);
+           regs[inst->dst.reg] = mem[addr];
+           break;
+         }
+ 
+         case STORE: {
+           assert(inst->dst.type == REG);
+-          int addr = src(inst);
+-          if (addr < 0)
+-            error("zero page store");
++          unsigned int addr = ((unsigned int) src(inst)) & (MEMSZ - 1);
+           mem[addr] = regs[inst->dst.reg];
+           break;
+         }
+ 
+         case PUTC:
+-          putchar(src(inst));
++          putchar(src(inst) & 255);
+           break;
+ 
+         case GETC: {
+           int c = getchar();
+           regs[inst->dst.reg] = c == EOF ? 0 : c;
+-          regs[inst->dst.reg] += MEMSZ;
+-          regs[inst->dst.reg] %= MEMSZ;
+           break;
+         }
+ 
+diff --git a/vendor/elvm/ir/ir.h b/vendor/elvm/ir/ir.h
+index d270eea..ad080a2 100644
+--- a/vendor/elvm/ir/ir.h
++++ b/vendor/elvm/ir/ir.h
+@@ -3,8 +3,8 @@
+ 
+ #include <stdio.h>
+ 
+-#define UINT_MAX 16777215
+-#define UINT_MAX_STR "16777215"
++#define UINT_MAX 4294967295u
++#define UINT_MAX_STR "4294967295u"
+ #ifdef __eir__
+ # define MOD24(v) v
+ #else
+diff --git a/vendor/elvm/libc/_builtin.h b/vendor/elvm/libc/_builtin.h
+index adfbbdc..47d15a9 100644
+--- a/vendor/elvm/libc/_builtin.h
++++ b/vendor/elvm/libc/_builtin.h
+@@ -8,8 +8,10 @@ typedef struct {
+ // Our 8cc doesn't support returning a structure value.
+ // TODO: update 8cc.
+ void my_div(unsigned int a, unsigned int b, _my_div_t* o) {
+-  unsigned int d[24];
+-  unsigned int r[24];
++  /* 32-бит: удвоение может идти до 32 итераций (было d[24] -> переполнение
++   * стека на каждом printf через __builtin_mod!) */
++  unsigned int d[33];
++  unsigned int r[33];
+   unsigned int i;
+   r[0] = 1;
+   for (i = 0;; i++) {
+@@ -35,39 +37,36 @@ void my_div(unsigned int a, unsigned int b, _my_div_t* o) {
+   o->rem = a;
+ }
+ 
++/* 32-битное умножение по модулю 2^32 (add-only, без bit/div — иначе
++ * циклическая зависимость с __builtin_and/shr). Значения unsigned:
++ * бит-паттерн произведения совпадает для знакового/беззнакового. */
+ static int __builtin_mul(int a, int b) {
+-  int i, e, v;
+-  if (a < b) {
+-    v = a;
+-    a = b;
+-    b = v;
+-  }
+-  if (b == 1)
+-    return a;
+-  if (b == 0)
++  unsigned int ua = (unsigned int) a;
++  unsigned int ub = (unsigned int) b;
++  unsigned int d[33], r[33];
++  unsigned int e, v, x;
++  int i;
++  if (ub == 0)
+     return 0;
+-  int d[24];
+-  int r[24];
+-  for (i = 0, e = 1, v = a;; i++) {
+-    d[i] = v;
+-    r[i] = e;
++  for (i = 0, e = 1, v = ua; ; i++) {
++    d[i] = v;                 /* ua << i (mod 2^32) */
++    r[i] = e;                 /* 1u << i            */
+     v += v;
+-    int ne = e + e;
+-    if (ne < e || ne > b)
++    unsigned int ne = e + e;
++    if (ne == 0 || ne > ub)   /* ne==0 => e перевалило бит 31 */
+       break;
+     e = ne;
+   }
+-
+-  int x = 0;
++  x = 0;
+   for (;; i--) {
+-    if (b >= r[i]) {
++    if (ub >= r[i]) {
+       x += d[i];
+-      b -= r[i];
++      ub -= r[i];
+     }
+     if (i == 0)
+       break;
+   }
+-  return x;
++  return (int) x;
+ }
+ 
+ static unsigned int __builtin_div(unsigned int a, unsigned int b) {
+@@ -84,21 +83,25 @@ static unsigned int __builtin_mod(unsigned int a, unsigned int b) {
+   return r.rem;
+ }
+ 
+-static const int __builtin_bits_table[] = {
+-  0x800000, 0x400000, 0x200000, 0x100000,
+-  0x80000, 0x40000, 0x20000, 0x10000,
+-  0x8000, 0x4000, 0x2000, 0x1000,
+-  0x800, 0x400, 0x200, 0x100,
+-  0x80, 0x40, 0x20, 0x10,
+-  0x8, 0x4, 0x2, 0x1,
++/* 32-битная таблица весов бит (бит 31 .. бит 0). unsigned, чтобы 0x80000000
++ * сравнивалось как большое положительное, а не INT_MIN. */
++static const unsigned int __builtin_bits_table[] = {
++  0x80000000u, 0x40000000u, 0x20000000u, 0x10000000u,
++  0x8000000u, 0x4000000u, 0x2000000u, 0x1000000u,
++  0x800000u, 0x400000u, 0x200000u, 0x100000u,
++  0x80000u, 0x40000u, 0x20000u, 0x10000u,
++  0x8000u, 0x4000u, 0x2000u, 0x1000u,
++  0x800u, 0x400u, 0x200u, 0x100u,
++  0x80u, 0x40u, 0x20u, 0x10u,
++  0x8u, 0x4u, 0x2u, 0x1u,
+ };
+ 
+ #define __BUILTIN_TO_BIT(v, t) (v >= t ? (v -= t, 1) : 0)
+ 
+ static unsigned int __builtin_and(unsigned int a, unsigned int b) {
+-  int r = 0;
+-  for (int i = 0; i < 24; i++) {
+-    int t = __builtin_bits_table[i];
++  unsigned int r = 0;
++  for (int i = 0; i < 32; i++) {
++    unsigned int t = __builtin_bits_table[i];
+     int a1 = __BUILTIN_TO_BIT(a, t);
+     int b1 = __BUILTIN_TO_BIT(b, t);
+     if (a1 && b1)
+@@ -108,9 +111,9 @@ static unsigned int __builtin_and(unsigned int a, unsigned int b) {
+ }
+ 
+ static unsigned int __builtin_or(unsigned int a, unsigned int b) {
+-  int r = 0;
+-  for (int i = 0; i < 24; i++) {
+-    int t = __builtin_bits_table[i];
++  unsigned int r = 0;
++  for (int i = 0; i < 32; i++) {
++    unsigned int t = __builtin_bits_table[i];
+     int a1 = __BUILTIN_TO_BIT(a, t);
+     int b1 = __BUILTIN_TO_BIT(b, t);
+     if (a1 || b1)
+@@ -120,9 +123,9 @@ static unsigned int __builtin_or(unsigned int a, unsigned int b) {
+ }
+ 
+ static unsigned int __builtin_xor(unsigned int a, unsigned int b) {
+-  int r = 0;
+-  for (int i = 0; i < 24; i++) {
+-    int t = __builtin_bits_table[i];
++  unsigned int r = 0;
++  for (int i = 0; i < 32; i++) {
++    unsigned int t = __builtin_bits_table[i];
+     int a1 = __BUILTIN_TO_BIT(a, t);
+     int b1 = __BUILTIN_TO_BIT(b, t);
+     if (a1 != b1)
+@@ -132,9 +135,9 @@ static unsigned int __builtin_xor(unsigned int a, unsigned int b) {
+ }
+ 
+ static unsigned int __builtin_not(unsigned int a) {
+-  int r = 0;
+-  for (int i = 0; i < 24; i++) {
+-    int t = __builtin_bits_table[i];
++  unsigned int r = 0;
++  for (int i = 0; i < 32; i++) {
++    unsigned int t = __builtin_bits_table[i];
+     int a1 = __BUILTIN_TO_BIT(a, t);
+     if (!a1)
+       r += t;
+@@ -143,9 +146,9 @@ static unsigned int __builtin_not(unsigned int a) {
+ }
+ 
+ static unsigned int __builtin_shl(unsigned int a, unsigned int b) {
+-  int r = 0;
+-  for (int i = b; i < 24; i++) {
+-    int t = __builtin_bits_table[i];
++  unsigned int r = 0;
++  for (unsigned int i = b; i < 32; i++) {
++    unsigned int t = __builtin_bits_table[i];
+     int a1 = __BUILTIN_TO_BIT(a, t);
+     if (a1)
+       r += __builtin_bits_table[i-b];
+@@ -154,9 +157,9 @@ static unsigned int __builtin_shl(unsigned int a, unsigned int b) {
+ }
+ 
+ static unsigned int __builtin_shr(unsigned int a, unsigned int b) {
+-  int r = 0;
+-  for (int i = b; i < 24; i++) {
+-    int t = __builtin_bits_table[i-b];
++  unsigned int r = 0;
++  for (unsigned int i = b; i < 32; i++) {
++    unsigned int t = __builtin_bits_table[i-b];
+     int a1 = __BUILTIN_TO_BIT(a, t);
+     if (a1)
+       r += __builtin_bits_table[i];
+diff --git a/vendor/elvm/target/c.c b/vendor/elvm/target/c.c
+index 9d7d8f7..fb0ba7e 100644
+--- a/vendor/elvm/target/c.c
++++ b/vendor/elvm/target/c.c
+@@ -60,11 +60,11 @@ static void c_emit_inst(Inst* inst) {
+     break;
+ 
+   case LOAD:
+-    emit_line("%s = mem[%s];", reg_names[inst->dst.reg], src_str(inst));
++    emit_line("%s = mem[(%s) & 16777215];", reg_names[inst->dst.reg], src_str(inst));
+     break;
+ 
+   case STORE:
+-    emit_line("mem[%s] = %s;", src_str(inst), reg_names[inst->dst.reg]);
++    emit_line("mem[(%s) & 16777215] = %s;", src_str(inst), reg_names[inst->dst.reg]);
+     break;
+ 
+   case PUTC:

@@ -44,6 +44,9 @@ static void wad_ensure_loaded(void) {
     p[i] = wad_in_byte();
   }
   *szp = size;
+  printf("WADLD size=%d p0_3=%d,%d,%d,%d cat=%d,%d\\n", size,
+         p[0]&255, p[1]&255, p[2]&255, p[3]&255,
+         p[4175796]&255, p[4175804]&255);
 }
 
 static int wad_path_size(const char *path) {

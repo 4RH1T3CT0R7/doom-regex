@@ -296,6 +296,7 @@ def fix_r_draw(t: str) -> str:
     return t
 
 
+
 def main() -> None:
     print(f"патчим {ROOT}")
     patch_file("p_setup.c", fix_p_setup)

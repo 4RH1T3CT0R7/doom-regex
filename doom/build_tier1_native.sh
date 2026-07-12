@@ -24,12 +24,12 @@ p = Path(sys.argv[1])
 t = p.read_text()
 if "setvbuf" not in t:
     t = "#include <fcntl.h>\n#include <io.h>\n" + t
-    needle = "int main() {\n mem[0] = 8388608;"
+    needle = "int main() {\n"      # устойчивый якорь (mem[0] значение меняется)
+    assert needle in t, "int main() не найден в generated C"
     t = t.replace(needle,
                   "int main() {\n"
                   " _setmode(_fileno(stdin), _O_BINARY);\n"
-                  " setvbuf(stdout, 0, _IONBF, 0);\n"
-                  " mem[0] = 8388608;", 1)
+                  " setvbuf(stdout, 0, _IONBF, 0);\n", 1)
     p.write_text(t)
     print("setvbuf + stdin binary mode вставлены")
 PYEOF
