@@ -103,6 +103,7 @@ typedef struct {
     size_t scap;
     pcre2_match_context *mctx;
     pcre2_jit_stack *jstack;
+    pcre2_match_data *probe_md;   /* быстрая проба «правило совпало?» */
     unsigned long long passes;
     size_t out_seen; /* сколько hex-символов OUT уже выведено */
 } Vm;
@@ -232,6 +233,14 @@ static void save_state(const Vm *vm, const char *path) {
 static int markov_pass(Vm *vm, const char **applied) {
     for (int i = 0; i < vm->n_rules; i++) {
         Rule *r = &vm->rules[i];
+        /* Быстрая проба: pcre2_substitute при НЕсовпадении всё равно
+         * готовит полную копию subject (десятки МБ) — при сотнях правил
+         * это доминирует в проходе. pcre2_match с \A-якорем отказывает
+         * за O(1) без копий; substitute зовём только по факту матча.
+         * Семантика подстановки не меняется (тот же паттерн). */
+        if (pcre2_match(r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
+                        0, vm->probe_md, vm->mctx) < 0)
+            continue;
         for (;;) {
             PCRE2_SIZE outlen = vm->scap;
             /* Без SUBSTITUTE_EXTENDED: ${n} поддержан и в базовом режиме,
@@ -459,6 +468,8 @@ int main(int argc, char **argv) {
     pcre2_set_depth_limit(vm.mctx, 10000000);
     vm.jstack = pcre2_jit_stack_create(64 * 1024, 16 * 1024 * 1024, NULL);
     pcre2_jit_stack_assign(vm.mctx, NULL, vm.jstack);
+    vm.probe_md = pcre2_match_data_create(64, NULL);
+    if (!vm.probe_md) die("oom probe_md");
 
     load_rules(&vm, rules_path);
     load_state(&vm, state_path);
