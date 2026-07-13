@@ -19,6 +19,7 @@ class MachState:
     regs: list[int] = field(default_factory=lambda: [0] * NUM_REGS)
     clk: int = 0
     inp: bytes = b""
+    inp_pos: int = 0        # потреблённый префикс IN (O(1)-GETC без срезов)
     out: bytes = b""
     prog: list[Insn] = field(default_factory=list)
     ram: dict[int, int] = field(default_factory=dict)   # v1.1
@@ -47,7 +48,7 @@ def encode(m: MachState) -> str:
     fb = "".join(f"[{i:04x}:{m.fb[i]:02x}]" for i in range(len(m.fb)))
     return (
         f"RVM1|ST:{m.st}|PH:{m.ph}|CI:{_ci(m)}|PC:{hexw(m.pc)}{regs}"
-        f"|CLK:{hexw(m.clk)}|IN:{m.inp.hex()}|OUT:{m.out.hex()}|"
+        f"|CLK:{hexw(m.clk)}|IN:{m.inp[m.inp_pos:].hex()}|OUT:{bytes(m.out).hex()}|"
         f"{ROM}#P{prog}#F{fb}#M{ram}#E"
     )
 

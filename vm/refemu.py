@@ -108,10 +108,13 @@ class RefEmu:
                         | ((WORD_MASK << (32 - R[s])) & WORD_MASK
                            if sign and R[s] else 0)) & WORD_MASK
         elif op == "PUTC":
-            m.out += bytes([R[d] & 0xFF])
+            if not isinstance(m.out, bytearray):
+                m.out = bytearray(m.out)
+            m.out.append(R[d] & 0xFF)
         elif op == "GETC":
-            if m.inp:
-                R[d], m.inp = m.inp[0], m.inp[1:]
+            if m.inp_pos < len(m.inp):
+                R[d] = m.inp[m.inp_pos]
+                m.inp_pos += 1
             else:
                 R[d] = 0
         elif op == "HLT":
