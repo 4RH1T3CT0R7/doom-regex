@@ -1,0 +1,8 @@
+........                                                                 [100%]
+8 passed in 0.53s
+                           Doom Generic 0.1
+[pass 10000 | 45 pass/s | len 24267632 | pcinc_d0]
+[pass 20000 | 47 pass/s | len 24268408 | jmp]
+[pass 30000 | 57 pass/s | len 24269012 | load_hit]
+
+-- max-passes | 30000 passes | 527.93s | 57 pass/s | final len 24269012
