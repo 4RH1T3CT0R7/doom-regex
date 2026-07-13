@@ -19,6 +19,7 @@ R7(U) — материализация констант, R6(T) свободен 
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -133,10 +134,23 @@ def translate(eir_text: str) -> str:
                 prev_boundary = False
     max_pc = pc
 
+    # семантика ir.c: _edata = адрес за последним словом данных; в память
+    # дописывается слово со значением _edata+1 (heap-указатель malloc)
+    labels.setdefault("_edata", data_addr)
+    data_words.append((data_addr, str(data_addr + 1)))
+    data_addr += 1
+
     def resolve(v):
         k, x = _parse_operand(v)
         if k == "ref":
             if x not in labels:
+                # выражение символ+смещение / символ-смещение (эмитит 8cc
+                # для адресной арифметики в .data, напр. 'mousearray+1')
+                m = re.fullmatch(r"([A-Za-z_.$][\w.$]*)([+-]\d+)", x)
+                if m and m.group(1) in labels:
+                    return ("imm",
+                            (labels[m.group(1)] + int(m.group(2)))
+                            & 0xFFFFFFFF)
                 raise EirError(f"неизвестная метка {x!r}")
             return ("imm", labels[x])
         return (k, x)
