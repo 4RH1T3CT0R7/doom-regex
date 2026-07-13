@@ -1,5 +1,5 @@
 diff --git a/vendor/elvm/8cc/gen.c b/vendor/elvm/8cc/gen.c
-index 841b5b0..78ef0db 100644
+index 841b5b0..edb263e 100644
 --- a/vendor/elvm/8cc/gen.c
 +++ b/vendor/elvm/8cc/gen.c
 @@ -42,7 +42,7 @@ static void emit_data(Node *v, int off, int depth);
@@ -28,7 +28,7 @@ index 841b5b0..78ef0db 100644
      emit("%s A, B", inst);
  }
  
-@@ -424,14 +434,21 @@ static void emit_binop_int_arith(Node *node) {
+@@ -424,14 +434,24 @@ static void emit_binop_int_arith(Node *node) {
              if (node->kind == '*')
                  emit_call_builtin("__builtin_mul");
              else if (node->kind == '/')
@@ -46,14 +46,17 @@ index 841b5b0..78ef0db 100644
                  emit_call_builtin("__builtin_shl");
 -            else if (node->kind == OP_SAR || node->kind == OP_SHR)
 +            else if (node->kind == OP_SAR)
-+                /* OP_SAR = знаковый >>: арифметический сдвиг (парсер уже
-+                 * выбрал SAR/SHR по usig, см. parse.c) */
-+                emit_call_builtin("__builtin_sar");
++                /* Простой '>>': парсер выбрал SAR/SHR по usig. НО '>>='
++                 * приходит как OP_SAR безусловно (get_compound_assign_op
++                 * не смотрит usig) — для беззнаковых lvalue сдвиг обязан
++                 * быть логическим (angle_t >>= ANGLETOFINESHIFT!). */
++                emit_call_builtin(node->ty->usig ? "__builtin_shr"
++                                                 : "__builtin_sar");
 +            else if (node->kind == OP_SHR)
                  emit_call_builtin("__builtin_shr");
              emit("add SP, 2");
              stackpos -= 3;
-@@ -480,6 +497,26 @@ static void emit_ret() {
+@@ -480,6 +500,26 @@ static void emit_ret() {
  
  static void emit_binop(Node *node) {
      SAVE;
@@ -80,7 +83,7 @@ index 841b5b0..78ef0db 100644
      if (node->ty->kind == KIND_PTR) {
          emit_pointer_arith(node->kind, node->left, node->right);
          return;
-@@ -611,9 +648,17 @@ static void emit_decl_init(Vector *inits, int off, int totalsize) {
+@@ -611,9 +651,17 @@ static void emit_decl_init(Vector *inits, int off, int totalsize) {
      }
  }
  
@@ -99,7 +102,7 @@ index 841b5b0..78ef0db 100644
      emit_store(node->operand);
  }
  
-@@ -621,7 +666,7 @@ static void emit_post_inc_dec(Node *node, char *op) {
+@@ -621,7 +669,7 @@ static void emit_post_inc_dec(Node *node, char *op) {
      SAVE;
      emit_expr(node->operand);
      push("A");
