@@ -146,6 +146,50 @@ def P(*lines):
     (P("MOVI R0, 0xf01000", "MOVI R1, 5", "STORE R0, R1",         # вне зоны ->
        "LOAD R2, R0", "HLT"), {"r2": 5}),                        # обычный #M
     (P("LOADI R1, 0xf00033", "HLT"), {"r1": 0}),                 # чтение нуля
+    # --- v1.2: битовые ------------------------------------------------------
+    (P("MOVI R0, 0x12345678", "MOVI R1, 0x0f0f0f0f", "BAND R0, R1", "HLT"),
+     {"r0": 0x12345678 & 0x0F0F0F0F}),
+    (P("MOVI R0, 0xdeadbeef", "MOVI R1, 0x12345678", "BOR R0, R1", "HLT"),
+     {"r0": 0xDEADBEEF | 0x12345678}),
+    (P("MOVI R0, 0xffff0000", "MOVI R1, 0x12345678", "BXOR R0, R1", "HLT"),
+     {"r0": 0xFFFF0000 ^ 0x12345678}),
+    # SHL: нулевой, нибловый, битовый, комбинированный, переполняющий, >=32
+    (P("MOVI R0, 0x12345678", "MOVI R1, 0", "SHL R0, R1", "HLT"),
+     {"r0": 0x12345678}),
+    (P("MOVI R0, 0x12345678", "MOVI R1, 4", "SHL R0, R1", "HLT"),
+     {"r0": 0x23456780}),
+    (P("MOVI R0, 0x12345678", "MOVI R1, 3", "SHL R0, R1", "HLT"),
+     {"r0": (0x12345678 << 3) & 0xFFFFFFFF}),
+    (P("MOVI R0, 0x12345678", "MOVI R1, 13", "SHL R0, R1", "HLT"),
+     {"r0": (0x12345678 << 13) & 0xFFFFFFFF}),
+    (P("MOVI R0, 0x00010000", "MOVI R1, 16", "SHL R0, R1", "HLT"),
+     {"r0": 0}),                              # 65536<<16 wrap (баг №7 8cc!)
+    (P("MOVI R0, 0x12345678", "MOVI R1, 32", "SHL R0, R1", "HLT"),
+     {"r0": 0}),
+    (P("MOVI R0, 0x12345678", "MOVI R1, 0x80000001", "SHL R0, R1", "HLT"),
+     {"r0": 0}),                              # огромный сдвиг
+    # SHR
+    (P("MOVI R0, 0x80000001", "MOVI R1, 1", "SHR R0, R1", "HLT"),
+     {"r0": 0x40000000}),
+    (P("MOVI R0, 0x12345678", "MOVI R1, 12", "SHR R0, R1", "HLT"),
+     {"r0": 0x12345678 >> 12}),
+    (P("MOVI R0, 0xffffffff", "MOVI R1, 31", "SHR R0, R1", "HLT"),
+     {"r0": 1}),
+    (P("MOVI R0, 0xffffffff", "MOVI R1, 33", "SHR R0, R1", "HLT"),
+     {"r0": 0}),
+    # SAR: знаковые (-65536>>16 = -1 — баг №6 8cc!)
+    (P("MOVI R0, 0xffff0000", "MOVI R1, 16", "SAR R0, R1", "HLT"),
+     {"r0": 0xFFFFFFFF}),
+    (P("MOVI R0, 0x7fff0000", "MOVI R1, 16", "SAR R0, R1", "HLT"),
+     {"r0": 0x7FFF}),
+    (P("MOVI R0, 0x80000000", "MOVI R1, 31", "SAR R0, R1", "HLT"),
+     {"r0": 0xFFFFFFFF}),
+    (P("MOVI R0, 0x80000000", "MOVI R1, 100", "SAR R0, R1", "HLT"),
+     {"r0": 0xFFFFFFFF}),
+    (P("MOVI R0, 0x12345678", "MOVI R1, 100", "SAR R0, R1", "HLT"),
+     {"r0": 0}),
+    (P("MOVI R0, 0xfffffffc", "MOVI R1, 1", "SAR R0, R1", "HLT"),
+     {"r0": 0xFFFFFFFE}),                     # -4>>1 = -2
 ])
 def test_units_lockstep(prog, checks):
     m, _ = lockstep(prog)

@@ -136,6 +136,103 @@ def build_rules() -> list[tuple[str, str, str]]:
               + rf"(?<pre>{FIELD}R(?P=d):).{{2}}",
               R1 + "${pre}00"))
 
+    # --- v1.2: битовые операции ---------------------------------------------
+    # BAND/BOR/BXOR: 8 lookahead-lookup'ов в таблицы #B/#O/#X (:ab=r),
+    # переноса нет — 1 проход.
+    def bitop_chain(table: str) -> str:
+        return "".join(
+            rf"(?={HOP}{table}[^#]*?:(?P=d{i})(?P=s{i})=(?<o{i}>.))"
+            for i in range(8))
+
+    for name, op, table in [("band", 0x60, "B"), ("bor", 0x61, "O"),
+                            ("bxor", 0x62, "X")]:
+        R.append((name,
+                  ci(op, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+                  + read_reg(r"(?P=s)", digits("s"))
+                  + read_reg(r"(?P=d)", digits("d"))
+                  + bitop_chain(table) + consume_dst(),
+                  R1 + "${pre}" + out_digits()))
+
+    # SHL/SHR/SAR: по правилу на величину сдвига n=4q+k (литерал в Rs);
+    # цифра результата — пара соседних цифр через таблицу #H (:abk=r,
+    # r = ((a<<4|b)<<k>>4)&0xF). SHR/SAR используют ту же таблицу с 4-k.
+    # Семантика краёв = __builtin_*: n>=32 -> 0 (SHL/SHR) / все-биты-знака
+    # (SAR). Тотальность опкода: 32 литерала + ge32-дополнение.
+    def s_lit(n: int) -> str:
+        return f"000000{n >> 4:x}{n & 15:x}"
+
+    def h_look(idx: int, a: str, b: str, k: int) -> str:
+        return rf"(?={HOP}H[^#]*?:{a}{b}{k}=(?<o{idx}>.))"
+
+    def dig_ref(j: int, virt: str) -> str:
+        return rf"(?P=d{j})" if 0 <= j <= 7 else virt
+
+    def shift_rule(mnem: str, op: int, n: int, right: bool,
+                   virt: str, top_cls: str | None) -> tuple[str, str, str]:
+        q, k = n >> 2, n & 3
+        looks: list[str] = []
+        out: list[str] = []
+        for i in range(7, -1, -1):
+            if right:
+                ja, jb, kk = i + q + 1, i + q, 4 - k
+                src = i + q
+            else:
+                ja, jb, kk = i - q, i - q - 1, k
+                src = i - q
+            if k == 0:
+                out.append(rf"${{d{src}}}" if 0 <= src <= 7 else virt)
+                continue
+            a, b = dig_ref(ja, virt), dig_ref(jb, virt)
+            if a.startswith("(?P") or b.startswith("(?P"):
+                looks.append(h_look(i, a, b, kk))
+                out.append(rf"${{o{i}}}")
+            else:                     # обе цифры за краем — константа
+                out.append("0" if virt == "0" else "f")
+        dcap = digits("d")
+        if top_cls:                   # SAR: класс знака у старшей цифры
+            dcap = rf"(?<d7>{top_cls})" + "".join(
+                rf"(?<d{i}>.)" for i in range(6, -1, -1))
+        name = f"{mnem.lower()}_{n}" + ("" if top_cls is None
+                                        else ("_n" if virt == "f" else "_p"))
+        return (name,
+                ci(op, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+                + read_reg(r"(?P=s)", s_lit(n))
+                + read_reg(r"(?P=d)", dcap)
+                + "".join(looks) + consume_dst(),
+                R1 + "${pre}" + "".join(out))
+
+    GE32 = ("(?=(?:" + "|".join([rf".{{{j}}}[1-9a-f]" for j in range(6)]
+                                + [r".{6}[2-9a-f]"]) + "))")
+    for n in range(32):
+        R.append(shift_rule("SHL", 0x63, n, right=False,
+                            virt="0", top_cls=None))
+    R.append(("shl_ge32",
+              ci(0x63, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", GE32) + consume_dst(),
+              R1 + "${pre}00000000"))
+    for n in range(32):
+        R.append(shift_rule("SHR", 0x64, n, right=True,
+                            virt="0", top_cls=None))
+    R.append(("shr_ge32",
+              ci(0x64, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", GE32) + consume_dst(),
+              R1 + "${pre}00000000"))
+    for n in range(32):
+        R.append(shift_rule("SAR", 0x65, n, right=True,
+                            virt="0", top_cls="[0-7]"))
+        R.append(shift_rule("SAR", 0x65, n, right=True,
+                            virt="f", top_cls="[89a-f]"))
+    R.append(("sar_ge32_p",
+              ci(0x65, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", GE32)
+              + read_reg(r"(?P=d)", r"[0-7]") + consume_dst(),
+              R1 + "${pre}00000000"))
+    R.append(("sar_ge32_n",
+              ci(0x65, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", GE32)
+              + read_reg(r"(?P=d)", r"[89a-f]") + consume_dst(),
+              R1 + "${pre}ffffffff"))
+
     # --- фреймбуфер (раньше #M-правил; окно 00f0oooo) ----------------------
     R.append(("storei_fb",
               ci(0x23, r"(?<d>[0-7]).00f0(?<o>.{4})")

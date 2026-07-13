@@ -87,6 +87,26 @@ class RefEmu:
                 nxt = imm
         elif op == "WR24":
             R[d] &= 0x00FFFFFF
+        elif op == "BAND":
+            R[d] &= R[s]
+        elif op == "BOR":
+            R[d] |= R[s]
+        elif op == "BXOR":
+            R[d] ^= R[s]
+        elif op == "SHL":
+            # семантика __builtin_shl: s >= 32 -> 0 (не mod 32)
+            R[d] = (R[d] << R[s]) & WORD_MASK if R[s] < 32 else 0
+        elif op == "SHR":
+            R[d] = (R[d] >> R[s]) if R[s] < 32 else 0
+        elif op == "SAR":
+            # арифметический: заполнение знаком; s >= 32 -> все биты знака
+            sign = R[d] >> 31
+            if R[s] >= 32:
+                R[d] = WORD_MASK if sign else 0
+            else:
+                R[d] = ((R[d] >> R[s])
+                        | ((WORD_MASK << (32 - R[s])) & WORD_MASK
+                           if sign and R[s] else 0)) & WORD_MASK
         elif op == "PUTC":
             m.out += bytes([R[d] & 0xFF])
         elif op == "GETC":

@@ -48,6 +48,14 @@ OPS = [
     Op(0x50, "WR24",   "d"),    # R[d] &= 0x00ffffff (24-бит wrap EIR)
     Op(0x40, "PUTC",   "d"),
     Op(0x41, "GETC",   "d"),
+    # --- v1.2: нативные битовые (семантика = __builtin_* ELVM-libc:
+    #     сдвиг на s >= 32 даёт 0 (SHL/SHR) либо все-биты-знака (SAR)) ---
+    Op(0x60, "BAND",   "ds"),   # R[d] &= R[s]
+    Op(0x61, "BOR",    "ds"),   # R[d] |= R[s]
+    Op(0x62, "BXOR",   "ds"),   # R[d] ^= R[s]
+    Op(0x63, "SHL",    "ds"),   # R[d] <<= R[s]   (логический, s>=32 -> 0)
+    Op(0x64, "SHR",    "ds"),   # R[d] >>= R[s]   (логический, s>=32 -> 0)
+    Op(0x65, "SAR",    "ds"),   # R[d] >>= R[s]   (арифметический)
     Op(0xFF, "HLT",    ""),
 ]
 
@@ -116,7 +124,47 @@ def zone_s() -> str:
     return _fulladder_zone("#S", sub=True)
 
 
-ROM = zone_d() + zone_q() + zone_l() + zone_a() + zone_s()
+def _bitop_zone(tag: str, fn) -> str:
+    """Таблица битовой операции по парам ниблов: :ab=r"""
+    dig = "0123456789abcdef"
+    parts = [tag]
+    for a in range(16):
+        for b in range(16):
+            parts.append(f":{dig[a]}{dig[b]}={dig[fn(a, b)]}")
+    return "".join(parts)
+
+
+def zone_b() -> str:
+    """#B — AND ниблов."""
+    return _bitop_zone("#B", lambda a, b: a & b)
+
+
+def zone_o() -> str:
+    """#O — OR ниблов."""
+    return _bitop_zone("#O", lambda a, b: a | b)
+
+
+def zone_x() -> str:
+    """#X — XOR ниблов."""
+    return _bitop_zone("#X", lambda a, b: a ^ b)
+
+
+def zone_h() -> str:
+    """#H — сдвиг пары ниблов: :abk=r, r = ((a<<4|b) << k >> 4) & 0xF
+    (k=1..3; левый сдвиг пары hi=a,lo=b даёт новую цифру на месте a).
+    Для SHR/SAR та же таблица читается парой (prev,cur) со сдвигом 4-k."""
+    dig = "0123456789abcdef"
+    parts = ["#H"]
+    for a in range(16):
+        for b in range(16):
+            for k in range(1, 4):
+                r = (((a << 4) | b) << k >> 4) & 0xF
+                parts.append(f":{dig[a]}{dig[b]}{k}={dig[r]}")
+    return "".join(parts)
+
+
+ROM = (zone_d() + zone_q() + zone_l() + zone_a() + zone_s()
+       + zone_b() + zone_o() + zone_x() + zone_h())
 
 # --- фреймбуфер -------------------------------------------------------------
 # Окно адресов f0xxxx: STORE в него пишет младший байт в ячейку зоны #F.

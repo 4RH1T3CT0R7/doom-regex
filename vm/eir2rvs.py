@@ -113,6 +113,7 @@ def translate(eir_text: str) -> str:
     insts = []                   # (op, args, pc, lineno)
     data_words = []              # (addr, raw-значение или ref)
 
+    cur_fn = ""                  # текущая text-функция (метка не с точки)
     for kind, a, b, lineno in toks:
         if kind == "label":
             if a == "text":
@@ -120,13 +121,15 @@ def translate(eir_text: str) -> str:
                     pc += 1
                 labels[b] = pc
                 prev_boundary = True
+                if not b.startswith("."):
+                    cur_fn = b
             else:
                 labels[b] = data_addr
         elif kind == "data":
             data_words.append((data_addr, b))
             data_addr += 1
         else:  # op
-            insts.append((a, b, pc, lineno))
+            insts.append((a, b, pc, lineno, cur_fn))
             if a in JCC or a == "jmp":
                 pc += 1
                 prev_boundary = True
@@ -190,7 +193,46 @@ def translate(eir_text: str) -> str:
     emit(f"    JMP Bpc_{labels['main']}")
     cur_pc = 0
 
-    for op, args, ipc, lineno in insts:
+    # --- v1.2: нативные стабы битовых builtin-ов ELVM-libc ------------------
+    # Тела __builtin_and/or/xor/shl/shr/sar/not (циклы по 32 итерации на
+    # операцию!) заменяются нативными опкодами RVM. Конвенция вызова 8cc:
+    # на входе [SP]=retpc(EIR-pc), [SP+1]=a, [SP+2]=b; результат в B;
+    # ret = pop retpc + JMPR (через трамплин). Семантика краёв (сдвиг>=32)
+    # у опкодов совпадает с C-циклами — tier-1 остаётся оракулом.
+    BUILTIN_STUBS = {
+        "__builtin_and": "BAND", "__builtin_or": "BOR",
+        "__builtin_xor": "BXOR", "__builtin_shl": "SHL",
+        "__builtin_shr": "SHR",  "__builtin_sar": "SAR",
+        "__builtin_not": None,   # BXOR с 0xffffffff
+    }
+
+    def emit_stub(mnem: str | None) -> None:
+        emit("    MOV T, SP")
+        emit("    ADDI T, 1")
+        emit("    LOAD B, T")           # B = a
+        if mnem is None:                # not: B ^= ~0
+            emit("    MOVI U, 4294967295")
+            emit("    BXOR B, U")
+        else:
+            emit("    ADDI T, 1")
+            emit("    LOAD U, T")       # U = b
+            emit(f"    {mnem} B, U")
+        emit("    LOAD T, SP")          # retpc
+        emit("    ADDI SP, 1")
+        emit("    JMPR T")              # в трамплин по EIR-pc
+
+    prev_fn = ""
+    for op, args, ipc, lineno, fname in insts:
+        if fname in BUILTIN_STUBS:
+            if ipc != cur_pc:
+                for missing in range(cur_pc + 1, ipc + 1):
+                    emit(f"Bpc_{missing}:")
+                cur_pc = ipc
+            if fname != prev_fn:
+                emit_stub(BUILTIN_STUBS[fname])
+            prev_fn = fname
+            continue                     # мёртвое тело не эмитим
+        prev_fn = fname
         if ipc != cur_pc:
             for missing in range(cur_pc + 1, ipc + 1):
                 emit(f"Bpc_{missing}:")
