@@ -21,6 +21,7 @@ extern int gamestate;
 extern int gametic;
 extern int viewheight;
 extern int viewwidth;
+extern int numnodes, numsegs, numsubsectors, numsectors, numlines;
 extern int automapactive;
 
 #define RVM_FB_BASE 0xf00000
@@ -40,6 +41,8 @@ void DG_DrawFrame() {
   {
     static int fc = 0;
     fc++;
+    if ((fc % 25) == 0)
+      printf("FR %d gs=%d gt=%d nodes=%d\n", fc, gamestate, gametic, numnodes);
     if (fc == RVM_DUMP_FRAME) {
       /* маркер + 64000 палитровых индексов, затем выход */
       putchar('D'); putchar('U'); putchar('M'); putchar('P'); putchar(':');

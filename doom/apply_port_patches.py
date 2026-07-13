@@ -296,6 +296,61 @@ def fix_r_draw(t: str) -> str:
     return t
 
 
+def fix_g_game(t: str) -> str:
+    # 1) 8cc НЕ расширяет знак при (signed char)-касте (byte=word):
+    #    forwardmove/sidemove из демо читались как 252 вместо -4 -> десинк.
+    #    Ручное расширение знака. angleturn чинить не надо: <<8/<<16
+    #    wrap-эквивалентен знаковому варианту по модулю 2^32.
+    old_fwd = ("    cmd->forwardmove = ((signed char)*demo_p++); \n"
+               "    cmd->sidemove = ((signed char)*demo_p++); ")
+    new_fwd = ("    { int v8 = *demo_p++; "
+               "cmd->forwardmove = (v8 >= 128 ? v8 - 256 : v8); }\n"
+               "    { int v8 = *demo_p++; "
+               "cmd->sidemove = (v8 >= 128 ? v8 - 256 : v8); }")
+    if new_fwd not in t:
+        assert old_fwd in t, "не найден demo-ридер forwardmove/sidemove"
+        t = t.replace(old_fwd, new_fwd, 1)
+    # 2) extern внутри блока = локальная переменная на 8cc
+    t = hoist_extern(t, "extern char *player_names[4];")
+    return t
+
+
+def fix_p_spec(t: str) -> str:
+    t = hoist_extern(t, "extern int numflats;")
+    return t
+
+
+def hoist_extern(t: str, decl: str) -> str:
+    """Выносит extern-декларацию из блока на файловый уровень (8cc-ловушка:
+    extern в блоке создаёт локальную переменную)."""
+    inblock = "    " + decl + "\n"
+    if inblock not in t:
+        assert decl + "\n" in t, f"нет ни блочной, ни файловой: {decl}"
+        return t
+    t = t.replace(inblock, "", 1)
+    # вставляем после последнего #include
+    idx = t.rfind('#include')
+    nl = t.index("\n", idx)
+    t = t[:nl + 1] + decl + "\n" + t[nl + 1:]
+    return t
+
+
+def fix_d_net(t: str) -> str:
+    # extern-декларация ВНУТРИ блока на 8cc создаёт ЛОКАЛЬНУЮ переменную:
+    # RunTic читал мусор со стека вместо advancedemo -> demo-цикл крутился
+    # сам по себе (D_DoAdvanceDemo без D_AdvanceDemo). Выносим на файловый
+    # уровень.
+    if "extern boolean advancedemo;\nstatic void RunTic" not in t:
+        t = t.replace("static void RunTic(ticcmd_t *cmds, boolean *ingame)\n"
+                      "{\n"
+                      "    extern boolean advancedemo;\n",
+                      "extern boolean advancedemo;\n"
+                      "static void RunTic(ticcmd_t *cmds, boolean *ingame)\n"
+                      "{\n", 1)
+    assert "{\n    extern boolean advancedemo;" not in t
+    return t
+
+
 
 def main() -> None:
     print(f"патчим {ROOT}")
@@ -310,6 +365,9 @@ def main() -> None:
     patch_file("d_main.c", fix_d_main)
     patch_file("f_finale.c", fix_f_finale)
     patch_file("r_draw.c", fix_r_draw)
+    patch_file("d_net.c", fix_d_net)
+    patch_file("g_game.c", fix_g_game)
+    patch_file("p_spec.c", fix_p_spec)
     print("готово")
 
 
