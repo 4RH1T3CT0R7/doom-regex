@@ -296,7 +296,22 @@ def fix_r_draw(t: str) -> str:
     return t
 
 
+def fix_r_bsp(t: str) -> str:
+    # 8cc портит вложенные массивы ПОСЛЕ частичного инициализатора {0}:
+    # checkcoord[8..10] зануляются -> R_CheckBBox рубит все северные
+    # bbox (span=0) -> рендерится только ближняя сторона BSP.
+    # Разворачиваем {0} в полный ряд.
+    if "    {0},\n" in t:
+        t = t.replace("    {0},\n", "    {0,0,0,0},\n")
+    assert "    {0},\n" not in t
+    return t
+
+
 def fix_g_game(t: str) -> str:
+    # та же беда 8cc с частичными инициализаторами: pars[4][10]
+    t = t.replace("    {0}, \n    {0,30,75,120,90,165,180,180,30,165}, ",
+                  "    {0,0,0,0,0,0,0,0,0,0}, \n"
+                  "    {0,30,75,120,90,165,180,180,30,165}, ", 1)
     # 1) 8cc НЕ расширяет знак при (signed char)-касте (byte=word):
     #    forwardmove/sidemove из демо читались как 252 вместо -4 -> десинк.
     #    Ручное расширение знака. angleturn чинить не надо: <<8/<<16
@@ -368,6 +383,7 @@ def main() -> None:
     patch_file("d_net.c", fix_d_net)
     patch_file("g_game.c", fix_g_game)
     patch_file("p_spec.c", fix_p_spec)
+    patch_file("r_bsp.c", fix_r_bsp)
     print("готово")
 
 
