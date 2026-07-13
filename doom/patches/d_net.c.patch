@@ -1,17 +1,32 @@
 --- /tmp/dg-upstream/doomgeneric/d_net.c	2026-07-07 01:36:33.979999400 +0300
-+++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/d_net.c	2026-07-07 04:27:23.874630700 +0300
-@@ -216,6 +216,14 @@
- {
-     net_connect_data_t connect_data;
++++ /c/dev/doom-regex-out/build/src/bfdoom/vendor/doomgeneric/doomgeneric/d_net.c	2026-07-13 17:43:28.752479000 +0300
+@@ -1,3 +1,4 @@
++#include "rvm_lumps.h"
+ //
+ // Copyright(C) 1993-1996 Id Software, Inc.
+ // Copyright(C) 2005-2014 Simon Howard
+@@ -68,9 +69,9 @@
+     }
+ }
  
++extern boolean advancedemo;
+ static void RunTic(ticcmd_t *cmds, boolean *ingame)
+ {
+-    extern boolean advancedemo;
+     unsigned int i;
+ 
+     // Check for player quits.
+@@ -214,6 +215,13 @@
+ 
+ void D_ConnectNetGame(void)
+ {
 +#ifdef __eir__
 +    /* RVM single-player timedemo: сеть не нужна; полная net-инициализация
 +     * ELVM-порту не требуется. Минимальный путь. */
-+    (void) connect_data;
 +    I_AtExit(D_QuitNetGame, true);
 +    netgame = false;
 +    return;
 +#endif
-     InitConnectData(&connect_data);
-     netgame = D_InitNetGame(&connect_data);
+     net_connect_data_t connect_data;
  
+     InitConnectData(&connect_data);

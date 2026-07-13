@@ -220,6 +220,12 @@ def fix_r_data(t: str) -> str:
     t = sub_n(t, r"realpatch = W_CacheLumpNum \(patch->patch, PU_CACHE\);",
               "realpatch = RVM_CachePatchNum (patch->patch, PU_CACHE);", 2)
     t = sub_n(t, r"x1 = patch->originx;", r"x1 = patch->originx;", 2)  # маркер
+
+    # R_GetColumn (аудит, critical): смещения colofs посчитаны относительно
+    # КОНВЕРТИРОВАННОГО патча (hdr = 4+width слов), а применялись к сырому
+    # лампу -> dc_source стен уезжал на hdr слов (одиночно-патчевые текстуры).
+    t = sub_n(t, r"return \(byte \*\)W_CacheLumpNum\(lump,PU_CACHE\)\+ofs;",
+              "return (byte *)RVM_CachePatchNum(lump,PU_CACHE)+ofs;")
     return t
 
 
@@ -242,7 +248,12 @@ def blanket_patch_cache(t: str, min_n: int) -> str:
 
 
 def fix_st_stuff(t: str) -> str:
-    return blanket_patch_cache(t, 2)
+    t = blanket_patch_cache(t, 2)
+    # PLAYPAL — сырые RGB-байты, НЕ патч (аудит, critical): patch-конвертер
+    # приписывал словный заголовок и сдвигал палитру на 4 слова.
+    t = sub_n(t, r"RVM_CachePatchNum \(lu_palette, PU_CACHE\)",
+              "W_CacheLumpNum (lu_palette, PU_CACHE)", 2)
+    return t
 
 
 def fix_wi_stuff(t: str) -> str:
@@ -254,7 +265,38 @@ def fix_hu_stuff(t: str) -> str:
 
 
 def fix_m_menu(t: str) -> str:
-    return blanket_patch_cache(t, 2)
+    t = blanket_patch_cache(t, 2)
+    # PLAYPAL сырой (гамма-клавиша)
+    t = sub_n(t, r'RVM_CachePatchName \(DEH_String\("PLAYPAL"\),PU_CACHE\)',
+              'W_CacheLumpName (DEH_String("PLAYPAL"),PU_CACHE)')
+    # 8cc не компилирует пре-декремент short-глобала (lvalue expected)
+    t = sub_n(t, r"if \(--skullAnimCounter <= 0\)",
+              "skullAnimCounter = skullAnimCounter - 1;\n"
+              "    if (skullAnimCounter <= 0)")
+    return t
+
+
+def fix_st_lib(t: str) -> str:
+    # STTMINUS — единственный патч статус-бара мимо конвертера (аудит)
+    t = sub_n(t,
+              r'sttminus = \(patch_t \*\) W_CacheLumpName\('
+              r'DEH_String\("STTMINUS"\), PU_STATIC\);',
+              'sttminus = RVM_CachePatchName(DEH_String("STTMINUS"), '
+              'PU_STATIC);')
+    return t
+
+
+def fix_r_segs(t: str) -> str:
+    # memcpy с множителем 2* рассчитан на 2-байтовый short: на ELVM копирует
+    # вдвое больше слов -> чтение за концом ceilingclip/floorclip и запись
+    # лишнего хвоста в openings (аудит).
+    t = sub_n(t, r"memcpy \(lastopening, ceilingclip\+start, "
+                 r"2\*\(rw_stopx-start\)\);",
+              "memcpy (lastopening, ceilingclip+start, (rw_stopx-start));")
+    t = sub_n(t, r"memcpy \(lastopening, floorclip\+start, "
+                 r"2\*\(rw_stopx-start\)\);",
+              "memcpy (lastopening, floorclip+start, (rw_stopx-start));")
+    return t
 
 
 def fix_am_map(t: str) -> str:
@@ -327,6 +369,15 @@ def fix_g_game(t: str) -> str:
         t = t.replace(old_fwd, new_fwd, 1)
     # 2) extern внутри блока = локальная переменная на 8cc
     t = hoist_extern(t, "extern char *player_names[4];")
+    # 3) финальный отчёт -timedemo: float не поддержан 8cc (молча int),
+    #    %f не поддержан libc printf (аудит) -> целочисленный fps*100
+    t = sub_n(t, r"float fps;", "int fps100;")
+    t = sub_n(t, r"fps = \(\(float\) gametic \* TICRATE\) / realtics;",
+              "fps100 = realtics ? (gametic * TICRATE * 100) / realtics : 0;")
+    t = sub_n(t, r'I_Error \("timed %i gametics in %i realtics \(%f fps\)",\s*'
+                 r'gametic, realtics, fps\);',
+              'I_Error ("timed %i gametics in %i realtics (fps*100 = %d)",\n'
+              '                 gametic, realtics, fps100);')
     return t
 
 
@@ -351,6 +402,19 @@ def hoist_extern(t: str, decl: str) -> str:
 
 
 def fix_d_net(t: str) -> str:
+    # single-player timedemo: сеть закорочена (полная net-инициализация
+    # ELVM-порту не нужна и тянет sha1/W_Checksum)
+    if "#ifdef __eir__" not in t:
+        t = sub_n(t, r"void D_ConnectNetGame\(void\)\n\{",
+                  """void D_ConnectNetGame(void)
+{
+#ifdef __eir__
+    /* RVM single-player timedemo: сеть не нужна; полная net-инициализация
+     * ELVM-порту не требуется. Минимальный путь. */
+    I_AtExit(D_QuitNetGame, true);
+    netgame = false;
+    return;
+#endif""")
     # extern-декларация ВНУТРИ блока на 8cc создаёт ЛОКАЛЬНУЮ переменную:
     # RunTic читал мусор со стека вместо advancedemo -> demo-цикл крутился
     # сам по себе (D_DoAdvanceDemo без D_AdvanceDemo). Выносим на файловый
@@ -384,6 +448,8 @@ def main() -> None:
     patch_file("g_game.c", fix_g_game)
     patch_file("p_spec.c", fix_p_spec)
     patch_file("r_bsp.c", fix_r_bsp)
+    patch_file("st_lib.c", fix_st_lib)
+    patch_file("r_segs.c", fix_r_segs)
     print("готово")
 
 
