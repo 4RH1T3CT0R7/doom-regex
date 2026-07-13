@@ -286,6 +286,36 @@ def fix_st_lib(t: str) -> str:
     return t
 
 
+def fix_i_video(t: str) -> str:
+    # DG_ScreenBuffer никем не читается (DG_DrawFrame берёт I_VideoBuffer
+    # напрямую), а конвертация под __eir__ ещё и битая (uint32_t*-запись =
+    # 1 слово с шагом 4). Убираем 64000 палитровых lookup'ов на кадр —
+    # на regex-VM это часы счёта (аудит).
+    old = """    /* DRAW SCREEN */
+    line_in  = (unsigned char *) I_VideoBuffer;
+    line_out = (unsigned char *) DG_ScreenBuffer;
+
+    y = SCREENHEIGHT;
+
+    while (y--)"""
+    new = """    /* DRAW SCREEN */
+    line_in  = (unsigned char *) I_VideoBuffer;
+    line_out = (unsigned char *) DG_ScreenBuffer;
+
+    y = SCREENHEIGHT;
+
+#ifdef __eir__
+    y = 0;   /* RVM: DG_DrawFrame читает I_VideoBuffer напрямую */
+    (void) line_in; (void) line_out;
+    (void) x_offset; (void) y_offset; (void) x_offset_end;
+#endif
+    while (y--)"""
+    assert old in t or new in t, "тело I_FinishUpdate не найдено"
+    if new not in t:
+        t = t.replace(old, new, 1)
+    return t
+
+
 def fix_r_segs(t: str) -> str:
     # memcpy с множителем 2* рассчитан на 2-байтовый short: на ELVM копирует
     # вдвое больше слов -> чтение за концом ceilingclip/floorclip и запись
@@ -450,6 +480,7 @@ def main() -> None:
     patch_file("r_bsp.c", fix_r_bsp)
     patch_file("st_lib.c", fix_st_lib)
     patch_file("r_segs.c", fix_r_segs)
+    patch_file("i_video.c", fix_i_video)
     print("готово")
 
 

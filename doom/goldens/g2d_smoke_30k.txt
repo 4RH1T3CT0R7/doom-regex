@@ -1,0 +1,9 @@
+                           Doom Generic 0.1
+[pass 5000 | 47 pass/s | len 26755792 | pcinc_d0]
+[pass 10000 | 46 pass/s | len 26755849 | pcinc_d0]
+[pass 15000 | 44 pass/s | len 26756476 | pcinc_d0]
+[pass 20000 | 43 pass/s | len 26756625 | jmp]
+[pass 25000 | 43 pass/s | len 26757058 | mov]
+[pass 30000 | 44 pass/s | len 26757229 | load_hit]
+
+-- max-passes | 30000 passes | 688.15s | 44 pass/s | final len 26757229

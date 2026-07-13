@@ -20,7 +20,7 @@ CFLAGS=(-S -D__eir__ '-DINT_MIN=(-2147483647-1)' -DSHRT_MAX=32767 -DEISDIR=21
         -I"$BFD/ports/elvm-libc" -I"$ELVM" -I"$ELVM/libc" -I"$ELVM/out"
         -I"$DOOM")
 if [ "$MODE" = "timedemo" ]; then
-  CFLAGS+=(-DRVM_WARP -DRVM_DUMP_FRAME=270)
+  CFLAGS+=(-DRVM_TIMEDEMO -DRVM_FRAME_CHECKSUM)
 fi
 
 SOURCES=(dummy am_map doomdef doomstat dstrings d_event d_items d_iwad d_loop
