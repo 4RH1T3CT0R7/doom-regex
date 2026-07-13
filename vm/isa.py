@@ -56,6 +56,9 @@ OPS = [
     Op(0x63, "SHL",    "ds"),   # R[d] <<= R[s]   (логический, s>=32 -> 0)
     Op(0x64, "SHR",    "ds"),   # R[d] >>= R[s]   (логический, s>=32 -> 0)
     Op(0x65, "SAR",    "ds"),   # R[d] >>= R[s]   (арифметический)
+    # v1.3: умножение mod 2^32 (микрофазы PH:3 на regex-уровне,
+    # атомарно в refemu; семантика = __builtin_mul)
+    Op(0x66, "MUL",    "ds"),   # R[d] *= R[s]
     Op(0xFF, "HLT",    ""),
 ]
 
@@ -163,8 +166,22 @@ def zone_h() -> str:
     return "".join(parts)
 
 
+def zone_t() -> str:
+    """#T — умножение нибла на нибл с переносом: :dkc=oc'
+    (o = (d*k+c) & 0xF, c' = (d*k+c) >> 4; c,c' в 0..15 hex)."""
+    dig = "0123456789abcdef"
+    parts = ["#T"]
+    for d in range(16):
+        for k in range(16):
+            for c in range(16):
+                r = d * k + c
+                parts.append(f":{dig[d]}{dig[k]}{dig[c]}="
+                             f"{dig[r & 0xF]}{dig[r >> 4]}")
+    return "".join(parts)
+
+
 ROM = (zone_d() + zone_q() + zone_l() + zone_a() + zone_s()
-       + zone_b() + zone_o() + zone_x() + zone_h())
+       + zone_b() + zone_o() + zone_x() + zone_h() + zone_t())
 
 # --- фреймбуфер -------------------------------------------------------------
 # Окно адресов f0xxxx: STORE в него пишет младший байт в ячейку зоны #F.

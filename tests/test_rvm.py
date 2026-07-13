@@ -190,6 +190,17 @@ def P(*lines):
      {"r0": 0}),
     (P("MOVI R0, 0xfffffffc", "MOVI R1, 1", "SAR R0, R1", "HLT"),
      {"r0": 0xFFFFFFFE}),                     # -4>>1 = -2
+    # --- v1.3: MUL (микрофазы PH:3) -----------------------------------------
+    (P("MOVI R0, 0", "MOVI R1, 12345", "MUL R0, R1", "HLT"), {"r0": 0}),
+    (P("MOVI R0, 3", "MOVI R1, 5", "MUL R0, R1", "HLT"), {"r0": 15}),
+    (P("MOVI R0, 0xffff", "MOVI R1, 0xffff", "MUL R0, R1", "HLT"),
+     {"r0": 0xFFFF * 0xFFFF}),
+    (P("MOVI R0, 0x10000", "MOVI R1, 0x10000", "MUL R0, R1", "HLT"),
+     {"r0": 0}),                              # 2^32 wrap
+    (P("MOVI R0, 0xffffffff", "MOVI R1, 0xffffffff", "MUL R0, R1", "HLT"),
+     {"r0": 1}),                              # (-1)*(-1) mod 2^32
+    (P("MOVI R0, 0x12345678", "MOVI R1, 0x9abcdef0", "MUL R0, R1", "HLT"),
+     {"r0": (0x12345678 * 0x9ABCDEF0) & 0xFFFFFFFF}),
 ])
 def test_units_lockstep(prog, checks):
     m, _ = lockstep(prog)

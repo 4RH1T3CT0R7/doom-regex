@@ -107,6 +107,8 @@ class RefEmu:
                 R[d] = ((R[d] >> R[s])
                         | ((WORD_MASK << (32 - R[s])) & WORD_MASK
                            if sign and R[s] else 0)) & WORD_MASK
+        elif op == "MUL":
+            R[d] = (R[d] * R[s]) & WORD_MASK
         elif op == "PUTC":
             if not isinstance(m.out, bytearray):
                 m.out = bytearray(m.out)

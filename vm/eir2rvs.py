@@ -225,6 +225,7 @@ def translate(eir_text: str) -> str:
         "__builtin_xor": "BXOR", "__builtin_shl": "SHL",
         "__builtin_shr": "SHR",  "__builtin_sar": "SAR",
         "__builtin_not": None,   # BXOR с 0xffffffff
+        "__builtin_mul": "MUL",  # v1.3: микрофазный нативный MUL
     }
 
     def emit_stub(mnem: str | None) -> None:

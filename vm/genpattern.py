@@ -233,6 +233,53 @@ def build_rules() -> list[tuple[str, str, str]]:
               + read_reg(r"(?P=d)", r"[89a-f]") + consume_dst(),
               R1 + "${pre}ffffffff"))
 
+    # --- v1.3: MUL (микрофазы PH:3, Хорнер по цифрам множителя MSB-first).
+    # Поле |MF:<i><acc8> живёт между PC и регистрами только внутри
+    # исполнения MUL; на PH:0-границах его нет (lockstep с refemu чист).
+    # Шаг i: acc' = (acc<<4) + Rd*s_digit[i], mod 2^32:
+    #   P = Rd*k цепочкой #T (:dkc=oc', перенос 0..15),
+    #   сумма цепочкой #A; старшие переносы отброшены (wrap).
+    # CPI: 1 init + 8 step + 1 fin (+pcinc+fetch) ~ 12 проходов.
+    H3 = r"\ARVM1\|ST:run\|PH:3\|CI:"
+
+    R.append(("mul_init",
+              ci(0x66, r"(?<d>[0-7])(?<s>[0-7]).{8}"),
+              "RVM1|ST:run|PH:3|CI:${ci}|PC:${pc}|MF:000000000"))
+
+    def mul_chain() -> str:
+        # P = Rd * k: p0..p7 с переносами t1..t7 (от младшей цифры)
+        parts = [rf"(?={HOP}T[^#]*?:(?P=d0)(?P=k)0=(?<p0>.)(?<t1>.))"]
+        for j in range(1, 7):
+            parts.append(
+                rf"(?={HOP}T[^#]*?:(?P=d{j})(?P=k)(?P=t{j})="
+                rf"(?<p{j}>.)(?<t{j+1}>.))")
+        parts.append(
+            rf"(?={HOP}T[^#]*?:(?P=d7)(?P=k)(?P=t7)=(?<p7>.).)")
+        # S = (acc<<4) + P: слагаемое1 = a6..a0,'0' (a7 выпадает)
+        parts.append(rf"(?={HOP}A[^#]*?:0(?P=p0)0=(?<o0>.)(?<u1>.))")
+        for j in range(1, 7):
+            parts.append(
+                rf"(?={HOP}A[^#]*?:(?P=a{j-1})(?P=p{j})(?P=u{j})="
+                rf"(?<o{j}>.)(?<u{j+1}>.))")
+        parts.append(
+            rf"(?={HOP}A[^#]*?:(?P=a6)(?P=p7)(?P=u7)=(?<o7>.).)")
+        return "".join(parts)
+
+    for i in range(8):
+        R.append((f"mul_step_{i}",
+                  H3 + rf"(?<ci>66(?<d>[0-7])(?<s>[0-7]).{{8}})"
+                  + rf"\|PC:(?<pc>.{{8}})\|MF:{i}" + digits("a")
+                  + read_reg(r"(?P=s)", rf".{{{i}}}(?<k>.)")
+                  + read_reg(r"(?P=d)", digits("d"))
+                  + mul_chain(),
+                  "RVM1|ST:run|PH:3|CI:${ci}|PC:${pc}"
+                  + f"|MF:{i + 1}" + out_digits()))
+    R.append(("mul_fin",
+              H3 + r"(?<ci>66(?<d>[0-7])[0-7].{8})"
+              + r"\|PC:(?<pc>.{8})\|MF:8" + digits("a")
+              + consume_dst(),
+              R1 + "${pre}${a7}${a6}${a5}${a4}${a3}${a2}${a1}${a0}"))
+
     # --- фреймбуфер (раньше #M-правил; окно 00f0oooo) ----------------------
     R.append(("storei_fb",
               ci(0x23, r"(?<d>[0-7]).00f0(?<o>.{4})")
