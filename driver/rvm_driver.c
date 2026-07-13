@@ -15,6 +15,10 @@
  */
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -416,6 +420,9 @@ static int selftest(void) {
 }
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    _setmode(_fileno(stdout), _O_BINARY);   /* OUT-эхо — сырые байты */
+#endif
     const char *rules_path = NULL, *state_path = NULL, *save_final = NULL;
     const char *fb_path = NULL;
     long long max_passes = -1;

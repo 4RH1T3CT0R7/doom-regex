@@ -50,9 +50,16 @@ def _parse_operand(tok: str):
 
 
 def _tokenize_eir(text: str):
-    """-> список (kind, payload): label/op/data-directive."""
+    """-> список (kind, payload): label/op/data-directive.
+
+    Метки/слова данных несут номер ПОДСЕКЦИИ ('.data N'): 8cc эмитит
+    строковые литералы вложенных инициализаторов в подсекцию N+1 прямо
+    посреди внешнего инициализатора, а ir.c сериализует данные по
+    возрастающим подсекциям — раскладка в порядке файла битая
+    (указатели перемежались бы байтами строк)."""
     out = []
     section = "text"
+    subsec = 0
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -62,6 +69,8 @@ def _tokenize_eir(text: str):
             continue
         if line.startswith(".data"):
             section = "data"
+            parts = line.split()
+            subsec = int(parts[1]) if len(parts) > 1 else 0
             continue
         if line.startswith((".file", ".loc")):
             continue
@@ -70,7 +79,7 @@ def _tokenize_eir(text: str):
             head, _, rest = line.partition(":")
             if " " in head or "\t" in head:
                 break
-            out.append(("label", section, head, lineno))
+            out.append(("label", section, (head, subsec), lineno))
             line = rest.strip()
             if not line:
                 break
@@ -85,7 +94,7 @@ def _tokenize_eir(text: str):
         args = [a.strip() for a in parts[1].split(",")] if len(parts) > 1 else []
         if section == "data":
             if op == ".long":
-                out.append(("data", None, args[0], lineno))
+                out.append(("data", subsec, args[0], lineno))
             elif op == ".string":
                 s = parts[1].strip()
                 if not (s.startswith('"') and s.endswith('"')):
@@ -93,8 +102,8 @@ def _tokenize_eir(text: str):
                 body = (s[1:-1].encode("latin-1")
                         .decode("unicode_escape").encode("latin-1"))
                 for b in body:
-                    out.append(("data", None, str(b), lineno))
-                out.append(("data", None, "0", lineno))
+                    out.append(("data", subsec, str(b), lineno))
+                out.append(("data", subsec, "0", lineno))
             else:
                 raise EirError(f"строка {lineno}: неизвестная data-директива {op}")
         else:
@@ -105,29 +114,30 @@ def _tokenize_eir(text: str):
 def translate(eir_text: str) -> str:
     toks = _tokenize_eir(eir_text)
 
-    # --- проход 1: pc блоков и адреса данных (семантика ir.c) -------------
+    # --- проход 1: pc блоков; данные копим по подсекциям (семантика ir.c:
+    # serialize_data сериализует подсекции по возрастанию, метки данных
+    # привязываются в момент сериализации своей подсекции) ------------------
     labels: dict[str, int] = {"main": 1}
     pc = 1                       # pc=0 занят неявным JMP main
     prev_boundary = True
-    data_addr = 0
-    insts = []                   # (op, args, pc, lineno)
-    data_words = []              # (addr, raw-значение или ref)
+    insts = []                   # (op, args, pc, lineno, fname)
+    subsecs: dict[int, list] = {}   # n -> [("label", имя) | ("word", raw)]
 
     cur_fn = ""                  # текущая text-функция (метка не с точки)
     for kind, a, b, lineno in toks:
         if kind == "label":
+            name, subsec = b
             if a == "text":
                 if not prev_boundary:
                     pc += 1
-                labels[b] = pc
+                labels[name] = pc
                 prev_boundary = True
-                if not b.startswith("."):
-                    cur_fn = b
+                if not name.startswith("."):
+                    cur_fn = name
             else:
-                labels[b] = data_addr
+                subsecs.setdefault(subsec, []).append(("label", name))
         elif kind == "data":
-            data_words.append((data_addr, b))
-            data_addr += 1
+            subsecs.setdefault(a, []).append(("word", b))
         else:  # op
             insts.append((a, b, pc, lineno, cur_fn))
             if a in JCC or a == "jmp":
@@ -136,6 +146,17 @@ def translate(eir_text: str) -> str:
             else:
                 prev_boundary = False
     max_pc = pc
+
+    # сериализация данных: подсекции по возрастанию
+    data_addr = 0
+    data_words = []              # (addr, raw-значение или ref)
+    for n in sorted(subsecs):
+        for what, payload in subsecs[n]:
+            if what == "label":
+                labels[payload] = data_addr
+            else:
+                data_words.append((data_addr, payload))
+                data_addr += 1
 
     # семантика ir.c: _edata = адрес за последним словом данных; в память
     # дописывается слово со значением _edata+1 (heap-указатель malloc)

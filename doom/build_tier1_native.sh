@@ -29,6 +29,7 @@ if "setvbuf" not in t:
     t = t.replace(needle,
                   "int main() {\n"
                   " _setmode(_fileno(stdin), _O_BINARY);\n"
+                  " _setmode(_fileno(stdout), _O_BINARY);\n"
                   " setvbuf(stdout, 0, _IONBF, 0);\n", 1)
     p.write_text(t)
     print("setvbuf + stdin binary mode вставлены")

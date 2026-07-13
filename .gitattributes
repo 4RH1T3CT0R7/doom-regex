@@ -5,3 +5,4 @@
 *.rgxset -text
 *.rvfb binary
 tests/golden/** binary
+doom/goldens/** binary
