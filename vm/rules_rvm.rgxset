@@ -1,8 +1,8 @@
 #rgxset/1
-#sha256:89a1909e9c4904f40f52896871fe8a05a64726bfe575a3a78fb92760de494799
+#sha256:b6e8f8a323cb10b3f04ecce14f9300acbfc248e8cc25274d49899e424c989006
 #rule fetch
-P:\ARVM1\|ST:run\|PH:2\|CI:.{12}\|PC:(?<pc>.{8})(?=(?:[^#]*+#)+?P(?:I[^;]*+;)*?I(?P=pc):(?<nci>.{12});)
-R:RVM1|ST:run|PH:0|CI:${nci}|PC:${pc}
+P:\ARVM1\|ST:run\|PH:2\|CI:.{12}\|PC:(?<pc6>.{6})(?<pc2>.{2})(?=(?:[^#]*+#)+?P(?:~[^~]*+~(?:I[^;]*+;)*+)*?~(?P=pc6)~(?:I[^;]*+;)*?I(?P=pc6)(?P=pc2):(?<nci>.{12});)
+R:RVM1|ST:run|PH:0|CI:${nci}|PC:${pc6}${pc2}
 #rule trap_noslot
 P:\ARVM1\|ST:run\|PH:2\|CI:.{12}\|PC:(?<pc>.{8})
 R:RVM1|ST:err:NOSLOT|PH:0|CI:------------|PC:${pc}

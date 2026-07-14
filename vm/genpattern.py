@@ -87,9 +87,14 @@ def build_rules() -> list[tuple[str, str, str]]:
     R: list[tuple[str, str, str]] = []
 
     # --- PH:2 fetch: единственный скан #P (шаг по слотам) ------------------
+    # fetch: скачок по вехам ~pppppp~ (256 слотов/блок), затем скан
+    # только внутри блока — O(вехи + 256) вместо O(все слоты)
     R.append(("fetch",
-              H2 + rf"(?={HOP}P{SLOT}I(?P=pc):(?<nci>.{{12}});)",
-              "RVM1|ST:run|PH:0|CI:${nci}|PC:${pc}"))
+              r"\ARVM1\|ST:run\|PH:2\|CI:.{12}"
+              r"\|PC:(?<pc6>.{6})(?<pc2>.{2})"
+              + rf"(?={HOP}P(?:~[^~]*+~(?:I[^;]*+;)*+)*?~(?P=pc6)~{SLOT}"
+              + r"I(?P=pc6)(?P=pc2):(?<nci>.{12});)",
+              "RVM1|ST:run|PH:0|CI:${nci}|PC:${pc6}${pc2}"))
     R.append(("trap_noslot", H2,
               "RVM1|ST:err:NOSLOT|PH:0|CI:------------|PC:${pc}"))
 

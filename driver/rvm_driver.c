@@ -27,11 +27,16 @@
 
 #define MAX_RULES 4096
 
+typedef struct { const char *lit; size_t n; int group; } RepTok;
+/* group >= 0 -> подстановка группы; group < 0 -> литерал [lit, lit+n) */
+
 typedef struct {
     char *name;
     pcre2_code *code;
     char *repl;
     size_t repl_len;
+    RepTok toks[160];
+    int n_toks;
 } Rule;
 
 /* --- SHA-256 (компактная реализация по FIPS 180-4) --------------------- */
@@ -104,6 +109,10 @@ typedef struct {
     pcre2_match_context *mctx;
     pcre2_jit_stack *jstack;
     pcre2_match_data *probe_md;   /* быстрая проба «правило совпало?» */
+    pcre2_match_data *splice_md;  /* полный ovector для in-place splice */
+    int pure;                     /* эталонный режим: полный substitute */
+    char *rbuf;                   /* буфер рендера replacement */
+    size_t rcap;
     unsigned long long passes;
     size_t out_seen; /* сколько hex-символов OUT уже выведено */
     size_t prev_len;             /* длина строки до последней замены */
@@ -198,6 +207,38 @@ static void load_rules(Vm *vm, const char *path) {
             fprintf(stderr, "rvm: warning: JIT недоступен для '%s'\n", r->name);
         r->repl = strdup(rep + 2);
         r->repl_len = strlen(r->repl);
+        /* O2 in-place splice: токенизация replacement (${имя} -> номер
+         * группы через таблицу имён паттерна) */
+        r->n_toks = 0;
+        {
+            const char *p2 = r->repl, *endp = r->repl + r->repl_len;
+            while (p2 < endp) {
+                if (p2[0] == '$' && p2[1] == '{') {
+                    const char *close = strchr(p2 + 2, '}');
+                    if (!close) die("кривой ${...} в replacement");
+                    char gname[64];
+                    size_t gl = (size_t)(close - p2 - 2);
+                    if (gl >= sizeof gname) die("длинное имя группы");
+                    memcpy(gname, p2 + 2, gl); gname[gl] = 0;
+                    int gn = pcre2_substring_number_from_name(
+                        r->code, (PCRE2_SPTR)gname);
+                    if (gn < 0) die("нет такой группы в паттерне");
+                    if (r->n_toks >= 160) die("много токенов");
+                    r->toks[r->n_toks].lit = NULL;
+                    r->toks[r->n_toks].n = 0;
+                    r->toks[r->n_toks++].group = gn;
+                    p2 = close + 1;
+                } else {
+                    const char *lit0 = p2;
+                    while (p2 < endp && !(p2[0] == '$' && p2[1] == '{'))
+                        p2++;
+                    if (r->n_toks >= 160) die("много токенов");
+                    r->toks[r->n_toks].lit = lit0;
+                    r->toks[r->n_toks].n = (size_t)(p2 - lit0);
+                    r->toks[r->n_toks++].group = -1;
+                }
+            }
+        }
         vm->n_rules++;
     }
     pcre2_compile_context_free(cctx);
@@ -234,9 +275,68 @@ static void save_state(const Vm *vm, const char *path) {
 
 /* --- один проход Маркова: первое совпавшее правило -------------------- */
 
+static int splice_apply(Vm *vm, Rule *r) {
+    /* O2 (план): in-place splice. С \A-якорем матч ровно один и
+     * начинается с нуля => substitute эквивалентен замене префикса
+     * [0, end) на рендер replacement из групп. Длиносохраняющие замены
+     * (подавляющее большинство) не трогают 90МБ-хвост вообще.
+     * Эталонный pure-режим (--pure) сверяется тестами драйверов. */
+    int rc = pcre2_match(r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
+                         0, vm->splice_md, vm->mctx);
+    if (rc < 0)
+        return 0;
+    PCRE2_SIZE *ov = pcre2_get_ovector_pointer(vm->splice_md);
+    size_t mend = ov[1];
+    /* рендер replacement */
+    size_t out = 0;
+    for (int k = 0; k < r->n_toks; k++) {
+        RepTok *tk = &r->toks[k];
+        const char *src; size_t n;
+        if (tk->group < 0) { src = tk->lit; n = tk->n; }
+        else {
+            PCRE2_SIZE a = ov[2 * tk->group], b = ov[2 * tk->group + 1];
+            if (a == PCRE2_UNSET) { src = ""; n = 0; }
+            else { src = vm->state + a; n = (size_t)(b - a); }
+        }
+        if (out + n + 1 > vm->rcap) {
+            vm->rcap = (out + n) * 2 + 4096;
+            vm->rbuf = realloc(vm->rbuf, vm->rcap);
+            if (!vm->rbuf) die("oom rbuf");
+        }
+        memcpy(vm->rbuf + out, src, n);
+        out += n;
+    }
+    /* live-дифф: старая изменяемая зона в scratch */
+    if (vm->live_dir) {
+        size_t keep = mend < vm->scap ? mend : vm->scap - 1;
+        memcpy(vm->scratch, vm->state, keep);
+        vm->scratch[keep] = 0;
+        vm->prev_len = vm->len;
+    }
+    if (out != mend) {
+        size_t newlen = vm->len - mend + out;
+        if (newlen + 1 > vm->cap) {
+            vm->cap = newlen + 65536;
+            vm->state = realloc(vm->state, vm->cap);
+            if (!vm->state) die("oom splice");
+        }
+        memmove(vm->state + out, vm->state + mend, vm->len - mend + 1);
+        vm->len = newlen;
+    }
+    memcpy(vm->state, vm->rbuf, out);
+    return 1;
+}
+
 static int markov_pass(Vm *vm, const char **applied) {
     for (int i = 0; i < vm->n_rules; i++) {
         Rule *r = &vm->rules[i];
+        if (!vm->pure) {
+            if (splice_apply(vm, r)) {
+                *applied = r->name;
+                return 1;
+            }
+            continue;
+        }
         /* Быстрая проба: pcre2_substitute при НЕсовпадении всё равно
          * готовит полную копию subject (десятки МБ) — при сотнях правил
          * это доминирует в проходе. pcre2_match с \A-якорем отказывает
@@ -493,6 +593,7 @@ int main(int argc, char **argv) {
     int quiet = 0;
     const char *live_dir = NULL;
     long long live_every = 25;
+    int pure = 0;
     InTail intail = {NULL, 0, NULL};
     const char *journal_path = NULL, *replay_path = NULL;
     InjectRec *replay = NULL;
@@ -511,6 +612,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--io-journal") && i + 1 < argc) journal_path = argv[++i];
         else if (!strcmp(argv[i], "--replay") && i + 1 < argc) replay_path = argv[++i];
         else if (!strcmp(argv[i], "--io-every") && i + 1 < argc) io_every = atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--pure")) pure = 1;
         else if (!strcmp(argv[i], "--live-dir") && i + 1 < argc) live_dir = argv[++i];
         else if (!strcmp(argv[i], "--live-every") && i + 1 < argc) live_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
@@ -520,7 +622,7 @@ int main(int argc, char **argv) {
         die("использование: rvm --rules F.rgxset --state F.rvstate "
             "[--max-passes N] [--trace-every N] [--save-final F] [--selftest]");
 
-    Vm vm = {0};
+    static Vm vm;              /* не на стеке: toks раздули Rule */
     vm.mctx = pcre2_match_context_create(NULL);
     pcre2_set_match_limit(vm.mctx, 100000000);
     pcre2_set_depth_limit(vm.mctx, 10000000);
@@ -531,6 +633,12 @@ int main(int argc, char **argv) {
     vm.t_start = (double)clock() / CLOCKS_PER_SEC;
     vm.probe_md = pcre2_match_data_create(64, NULL);
     if (!vm.probe_md) die("oom probe_md");
+    vm.splice_md = pcre2_match_data_create(200, NULL);
+    if (!vm.splice_md) die("oom splice_md");
+    vm.pure = pure;
+    vm.rcap = 1 << 20;
+    vm.rbuf = malloc(vm.rcap);
+    if (!vm.rbuf) die("oom rbuf");
 
     load_rules(&vm, rules_path);
     load_state(&vm, state_path);
