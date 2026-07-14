@@ -372,91 +372,6 @@ def build_rules() -> list[tuple[str, str, str]]:
               + consume_dst(),
               R1 + "${pre}" + outg("r")))
 
-    # --- v1.4: fused DSPAN/DCOL — пиксель внутреннего цикла рендера за
-    # ОДИН проход (само-повтор: PH:0 -> PH:0 с тем же CI, пока C != 0).
-    # Привязка регистров: A=pos/frac, B=step, C=счётчик, D=src, U=cmap,
-    # T=dest. Матч потребляет весь блок R0..R7 (с точными копиями
-    # нетронутых), затем ${mid} до FB-ячейки пикселя. Texel и цвет —
-    # lookup'ы #M по 8 backreference-цифрам вычисленного адреса.
-    def cdig(prefix: str) -> str:
-        return "".join(rf"(?<{prefix}{i}>.)" for i in range(7, -1, -1))
-
-    def chain_mixed(table: str, xs: list, ys: list, c0: str,
-                    op_: str) -> str:
-        """Цепочка #A/#S: xs[i], ys[i] — готовые regex-атомы цифр."""
-        parts = [rf"(?={HOP}{table}[^#]*?:{xs[0]}{ys[0]}{c0}="
-                 rf"(?<{op_}0>.)(?<{op_}c1>.))"]
-        for i in range(1, 7):
-            parts.append(
-                rf"(?={HOP}{table}[^#]*?:{xs[i]}{ys[i]}(?P={op_}c{i})="
-                rf"(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
-        parts.append(
-            rf"(?={HOP}{table}[^#]*?:{xs[7]}{ys[7]}(?P={op_}c7)="
-            rf"(?<{op_}7>.).)")
-        return "".join(parts)
-
-    def refs(prefix: str) -> list:
-        return [rf"(?P={prefix}{i})" for i in range(8)]
-
-    def lits(word: int) -> list:
-        return [f"{(word >> (4 * i)) & 0xF:x}" for i in range(8)]
-
-    NONZERO8 = ("(?=(?:" + "|".join("0" * k + "[1-9a-f]"
-                                    for k in range(8)) + "))")
-
-    def mem_val_lookup(addr_prefix: str, out1: str, out0: str) -> str:
-        tag = "".join(rf"(?P={addr_prefix}{i})" for i in range(7, -1, -1))
-        return (rf"(?={HOP}M[^#]*?\[{tag}:.{{6}}"
-                rf"(?<{out1}>.)(?<{out0}>.)\])")
-
-    def fused_rule(name: str, opcode: int, spot_part: str,
-                   spot_digits: list, dest_step: int) -> tuple:
-        head = (H0 + rf"(?<ci>{opcode:02x}.{{10}})\|PC:(?<pc>.{{8}})"
-                + r"\|R0:" + cdig("a")
-                + r"\|R1:" + cdig("b")
-                + r"\|R2:" + NONZERO8 + cdig("c")
-                + r"\|R3:" + cdig("d")
-                + r"\|R4:(?<r4>.{8})\|R5:(?<r5>.{8})"
-                + r"\|R6:" + cdig("t")
-                + r"\|R7:" + cdig("u"))
-        calc = (spot_part
-                # адрес texel = D + spot
-                + chain_mixed("A", refs("d"), spot_digits, "0", "e")
-                + mem_val_lookup("e", "tx1", "tx0")
-                # адрес цвета = U + texel
-                + chain_mixed("A", refs("u"),
-                              ["(?P=tx0)", "(?P=tx1)"] + ["0"] * 6, "0", "f")
-                + mem_val_lookup("f", "cv1", "cv0")
-                # A += B; T += step; C -= 1
-                + chain_mixed("A", refs("a"), refs("b"), "0", "o")
-                + chain_mixed("A", refs("t"), lits(dest_step), "0", "v")
-                + chain_mixed("S", refs("c"), lits(1), "0", "w"))
-        mid = (rf"(?<mid>{HOP}F(?:\[[^\]]*+\])*?"
-               rf"\[(?P=t3)(?P=t2)(?P=t1)(?P=t0):).{{2}}")
-        repl = ("RVM1|ST:run|PH:0|CI:${ci}|PC:${pc}"
-                + "|R0:" + outg("o")
-                + "|R1:" + outg("b")
-                + "|R2:" + outg("w")
-                + "|R3:" + outg("d")
-                + "|R4:${r4}|R5:${r5}"
-                + "|R6:" + outg("v")
-                + "|R7:" + outg("u")
-                + "${mid}${cv1}${cv0}")
-        return (name, head + calc + mid, repl)
-
-    # DSPAN: spot = ((A>>4)&0xFC0)|(A>>26): n2=a3, n1=#G(a2,a7), n0=#J(a7,a6)
-    dspan_spot = (rf"(?={HOP}G[^#]*?:(?P=a2)(?P=a7)=(?<n1>.))"
-                  rf"(?={HOP}J[^#]*?:(?P=a7)(?P=a6)=(?<n0>.))")
-    R.append(fused_rule("dspan_px", 0x69, dspan_spot,
-                        ["(?P=n0)", "(?P=n1)", "(?P=a3)"] + ["0"] * 5, 1))
-    # DCOL: spot = (A>>16)&127: n1 = a5&7 (таблица #B), n0 = a4
-    dcol_spot = rf"(?={HOP}B[^#]*?:(?P=a5)7=(?<n1>.))"
-    R.append(fused_rule("dcol_px", 0x6A, dcol_spot,
-                        ["(?P=a4)", "(?P=n1)"] + ["0"] * 6, 320))
-    R.append(("dspan_end", ci(0x69, r".{10}")
-              + r"(?=" + FIELD + r"R2:00000000)", R1))
-    R.append(("dcol_end", ci(0x6A, r".{10}")
-              + r"(?=" + FIELD + r"R2:00000000)", R1))
 
     # --- фреймбуфер (раньше #M-правил; окно 00f0oooo) ----------------------
     R.append(("storei_fb",
@@ -621,6 +536,92 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("getc_eof",
               ci(0x41, r"(?<d>[0-7]).{9}") + consume_dst(),
               R1 + "${pre}00000000"))
+
+    # --- v1.4: fused DSPAN/DCOL — пиксель внутреннего цикла рендера за
+    # ОДИН проход (само-повтор: PH:0 -> PH:0 с тем же CI, пока C != 0).
+    # Привязка регистров: A=pos/frac, B=step, C=счётчик, D=src, U=cmap,
+    # T=dest. Матч потребляет весь блок R0..R7 (с точными копиями
+    # нетронутых), затем ${mid} до FB-ячейки пикселя. Texel и цвет —
+    # lookup'ы #M по 8 backreference-цифрам вычисленного адреса.
+    def cdig(prefix: str) -> str:
+        return "".join(rf"(?<{prefix}{i}>.)" for i in range(7, -1, -1))
+
+    def chain_mixed(table: str, xs: list, ys: list, c0: str,
+                    op_: str) -> str:
+        """Цепочка #A/#S: xs[i], ys[i] — готовые regex-атомы цифр."""
+        parts = [rf"(?={HOP}{table}[^#]*?:{xs[0]}{ys[0]}{c0}="
+                 rf"(?<{op_}0>.)(?<{op_}c1>.))"]
+        for i in range(1, 7):
+            parts.append(
+                rf"(?={HOP}{table}[^#]*?:{xs[i]}{ys[i]}(?P={op_}c{i})="
+                rf"(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
+        parts.append(
+            rf"(?={HOP}{table}[^#]*?:{xs[7]}{ys[7]}(?P={op_}c7)="
+            rf"(?<{op_}7>.).)")
+        return "".join(parts)
+
+    def refs(prefix: str) -> list:
+        return [rf"(?P={prefix}{i})" for i in range(8)]
+
+    def lits(word: int) -> list:
+        return [f"{(word >> (4 * i)) & 0xF:x}" for i in range(8)]
+
+    NONZERO8 = ("(?=(?:" + "|".join("0" * k + "[1-9a-f]"
+                                    for k in range(8)) + "))")
+
+    def mem_val_lookup(addr_prefix: str, out1: str, out0: str) -> str:
+        tag = "".join(rf"(?P={addr_prefix}{i})" for i in range(7, -1, -1))
+        return (rf"(?={HOP}M[^#]*?\[{tag}:.{{6}}"
+                rf"(?<{out1}>.)(?<{out0}>.)\])")
+
+    def fused_rule(name: str, opcode: int, spot_part: str,
+                   spot_digits: list, dest_step: int) -> tuple:
+        head = (H0 + rf"(?<ci>{opcode:02x}.{{10}})\|PC:(?<pc>.{{8}})"
+                + r"\|R0:" + cdig("a")
+                + r"\|R1:" + cdig("b")
+                + r"\|R2:" + NONZERO8 + cdig("c")
+                + r"\|R3:" + cdig("d")
+                + r"\|R4:(?<r4>.{8})\|R5:(?<r5>.{8})"
+                + r"\|R6:" + cdig("t")
+                + r"\|R7:" + cdig("u"))
+        calc = (spot_part
+                # адрес texel = D + spot
+                + chain_mixed("A", refs("d"), spot_digits, "0", "e")
+                + mem_val_lookup("e", "tx1", "tx0")
+                # адрес цвета = U + texel
+                + chain_mixed("A", refs("u"),
+                              ["(?P=tx0)", "(?P=tx1)"] + ["0"] * 6, "0", "f")
+                + mem_val_lookup("f", "cv1", "cv0")
+                # A += B; T += step; C -= 1
+                + chain_mixed("A", refs("a"), refs("b"), "0", "o")
+                + chain_mixed("A", refs("t"), lits(dest_step), "0", "v")
+                + chain_mixed("S", refs("c"), lits(1), "0", "w"))
+        mid = (rf"(?<mid>{HOP}F(?:\[[^\]]*+\])*?"
+               rf"\[(?P=t3)(?P=t2)(?P=t1)(?P=t0):).{{2}}")
+        repl = ("RVM1|ST:run|PH:0|CI:${ci}|PC:${pc}"
+                + "|R0:" + outg("o")
+                + "|R1:" + outg("b")
+                + "|R2:" + outg("w")
+                + "|R3:" + outg("d")
+                + "|R4:${r4}|R5:${r5}"
+                + "|R6:" + outg("v")
+                + "|R7:" + outg("u")
+                + "${mid}${cv1}${cv0}")
+        return (name, head + calc + mid, repl)
+
+    # DSPAN: spot = ((A>>4)&0xFC0)|(A>>26): n2=a3, n1=#G(a2,a7), n0=#J(a7,a6)
+    dspan_spot = (rf"(?={HOP}G[^#]*?:(?P=a2)(?P=a7)=(?<n1>.))"
+                  rf"(?={HOP}J[^#]*?:(?P=a7)(?P=a6)=(?<n0>.))")
+    R.append(fused_rule("dspan_px", 0x69, dspan_spot,
+                        ["(?P=n0)", "(?P=n1)", "(?P=a3)"] + ["0"] * 5, 1))
+    # DCOL: spot = (A>>16)&127: n1 = a5&7 (таблица #B), n0 = a4
+    dcol_spot = rf"(?={HOP}B[^#]*?:(?P=a5)7=(?<n1>.))"
+    R.append(fused_rule("dcol_px", 0x6A, dcol_spot,
+                        ["(?P=a4)", "(?P=n1)"] + ["0"] * 6, 320))
+    R.append(("dspan_end", ci(0x69, r".{10}")
+              + r"(?=" + FIELD + r"R2:00000000)", R1))
+    R.append(("dcol_end", ci(0x6A, r".{10}")
+              + r"(?=" + FIELD + r"R2:00000000)", R1))
 
     # --- останов и трапы (тотальность) --------------------------------------
     R.append(("hlt",
