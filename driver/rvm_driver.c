@@ -106,6 +106,10 @@ typedef struct {
     pcre2_match_data *probe_md;   /* быстрая проба «правило совпало?» */
     unsigned long long passes;
     size_t out_seen; /* сколько hex-символов OUT уже выведено */
+    size_t prev_len;             /* длина строки до последней замены */
+    const char *live_dir;        /* live-экспорт для вьювера (fb + лента) */
+    long long live_every;
+    double t_start;
 } Vm;
 
 static void die(const char *msg) {
@@ -267,6 +271,7 @@ static int markov_pass(Vm *vm, const char **applied) {
             }
             if (rc == 0) break;      /* правило не совпало — следующее */
             /* применилось: swap буферов */
+            vm->prev_len = vm->len;
             char *t = vm->state; vm->state = vm->scratch; vm->scratch = t;
             size_t tc = vm->cap; vm->cap = vm->scap; vm->scap = tc;
             vm->len = outlen;
@@ -301,6 +306,54 @@ static void export_fb(const Vm *vm, const char *path) {
     fclose(f);
 #ifdef _WIN32
     MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);  /* атомарно */
+#else
+    rename(tmp, path);
+#endif
+}
+
+/* --- live-экспорт: fb + лента подстановок для вьювера демо -------------
+ * Честность: только КОПИИ подстрок состояния наружу (как export_fb).
+ * Дифф старой/новой строки — вычисление НАД ЭКСПОРТОМ, не над машиной. */
+
+static void write_live(Vm *vm, const char *rule) {
+    char path[1024], tmp[1040];
+    /* fb */
+    if (snprintf(path, sizeof path, "%s/fb.rvfb", vm->live_dir)
+            < (int)sizeof path)
+        export_fb(vm, path);
+    /* лента: окно вокруг первого содержательного расхождения строк
+     * (старая строка после swap лежит в scratch) */
+    size_t n = vm->len < vm->prev_len ? vm->len : vm->prev_len;
+    size_t skip = 220;                     /* заголовок пульсирует всегда */
+    size_t d = skip;
+    const char *a = vm->scratch, *b = vm->state;
+    while (d < n && a[d] == b[d]) d++;
+    if (d >= n) {                          /* менялся только заголовок */
+        d = 0;
+        while (d < n && a[d] == b[d]) d++;
+        if (d >= n) d = 0;
+    }
+    size_t w0 = d > 60 ? d - 60 : 0;
+    size_t wend_b = d + 96; if (wend_b > vm->len) wend_b = vm->len;
+    size_t wend_a = d + 96; /* по старой строке */
+    double el = (double)clock() / CLOCKS_PER_SEC - vm->t_start;
+    if (snprintf(path, sizeof path, "%s/live.json", vm->live_dir)
+            >= (int)sizeof path) return;
+    if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return;
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    fprintf(f, "{\"pass\": %llu, \"len\": %zu, \"pps\": %.2f, "
+               "\"rule\": \"%s\", \"pos\": %zu, ",
+            vm->passes, vm->len, el > 0 ? vm->passes / el : 0.0,
+            rule ? rule : "", d);
+    fprintf(f, "\"head\": \"%.120s\", ", vm->state);
+    fprintf(f, "\"before\": \"%.*s\", ",
+            (int)(wend_a > w0 ? wend_a - w0 : 0), vm->scratch + w0);
+    fprintf(f, "\"after\": \"%.*s\", \"w0\": %zu}",
+            (int)(wend_b > w0 ? wend_b - w0 : 0), vm->state + w0, w0);
+    fclose(f);
+#ifdef _WIN32
+    MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
 #else
     rename(tmp, path);
 #endif
@@ -438,6 +491,8 @@ int main(int argc, char **argv) {
     long long max_passes = -1;
     long long trace_every = 0, fb_every = 0, io_every = 64;
     int quiet = 0;
+    const char *live_dir = NULL;
+    long long live_every = 25;
     InTail intail = {NULL, 0, NULL};
     const char *journal_path = NULL, *replay_path = NULL;
     InjectRec *replay = NULL;
@@ -456,6 +511,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--io-journal") && i + 1 < argc) journal_path = argv[++i];
         else if (!strcmp(argv[i], "--replay") && i + 1 < argc) replay_path = argv[++i];
         else if (!strcmp(argv[i], "--io-every") && i + 1 < argc) io_every = atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--live-dir") && i + 1 < argc) live_dir = argv[++i];
+        else if (!strcmp(argv[i], "--live-every") && i + 1 < argc) live_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
         else { fprintf(stderr, "rvm: неизвестный аргумент %s\n", argv[i]); return 2; }
     }
@@ -469,6 +526,9 @@ int main(int argc, char **argv) {
     pcre2_set_depth_limit(vm.mctx, 10000000);
     vm.jstack = pcre2_jit_stack_create(64 * 1024, 16 * 1024 * 1024, NULL);
     pcre2_jit_stack_assign(vm.mctx, NULL, vm.jstack);
+    vm.live_dir = live_dir;
+    vm.live_every = live_every;
+    vm.t_start = (double)clock() / CLOCKS_PER_SEC;
     vm.probe_md = pcre2_match_data_create(64, NULL);
     if (!vm.probe_md) die("oom probe_md");
 
@@ -508,6 +568,8 @@ int main(int argc, char **argv) {
         }
         vm.passes++;
         echo_out(&vm);
+        if (vm.live_dir && vm.passes % (unsigned long long)vm.live_every == 0)
+            write_live(&vm, applied);
         if (trace_every && vm.passes % (unsigned long long)trace_every == 0) {
             double dt = now_sec() - t0;
             fprintf(stderr, "[pass %llu | %.0f pass/s | len %zu | %s]\n",

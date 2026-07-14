@@ -43,6 +43,8 @@ def main() -> None:
     ap.add_argument("--dump-fb", type=Path,
                     help="писать FB-зону (кадр) в файл в конце")
     ap.add_argument("--progress-every", type=int, default=2_000_000)
+    ap.add_argument("--profile-from", type=int, default=0,
+                    help="с этого шага собирать гистограмму pc->функция")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -59,6 +61,24 @@ def main() -> None:
     e = RefEmu(prog, inp, ram, wad=wad)
     print(f"[{time.strftime('%H:%M:%S')}] {len(prog)} insns, "
           f"in={len(inp)} байт; старт", flush=True)
+
+    # карта адрес->функция из '; @fn' маркеров .rvs
+    fn_starts = []
+    if args.profile_from:
+        idx = 0
+        cur = "?"
+        for line in args.rvs.read_text(encoding="utf-8").splitlines():
+            ls = line.strip()
+            if ls.startswith("; @fn "):
+                cur = ls[6:]
+                fn_starts.append((idx, cur))
+            elif ls and not ls.startswith(";") and not ls.endswith(":")                     and not ls.startswith(".mem"):
+                idx += 1
+        import bisect
+        fn_addrs = [a for a, _ in fn_starts]
+        fn_names = [n for _, n in fn_starts]
+        from collections import Counter
+        prof = Counter()
 
     steps = 0
     t1 = time.time()
@@ -83,6 +103,9 @@ def main() -> None:
             save_state(args.output, state, passes=0)
             print(f"[snapshot] шаг {steps}: {args.output} "
                   f"(len {len(state)})", flush=True)
+        if args.profile_from and steps >= args.profile_from:
+            k = bisect.bisect_right(fn_addrs, e.m.pc) - 1
+            prof[fn_names[k] if k >= 0 else "?"] += 1
         if not e.step():
             print(f"[stop] st={e.m.st} на шаге {steps}", flush=True)
             break
@@ -102,6 +125,11 @@ def main() -> None:
     if args.dump_out:
         args.dump_out.write_bytes(e.m.out)
         print(f"OUT -> {args.dump_out}", flush=True)
+    if args.profile_from and prof:
+        total = sum(prof.values())
+        print(f"[profile] {total:,} шагов с {args.profile_from:,}:")
+        for name, cnt in prof.most_common(25):
+            print(f"  {cnt:>12,}  {100*cnt/total:5.1f}%  {name}", flush=True)
     if args.dump_fb:
         args.dump_fb.write_bytes(bytes(e.m.fb))
         print(f"FB -> {args.dump_fb}", flush=True)

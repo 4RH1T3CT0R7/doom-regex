@@ -254,6 +254,8 @@ def translate(eir_text: str) -> str:
                 emit_stub(BUILTIN_STUBS[fname])
             prev_fn = fname
             continue                     # мёртвое тело не эмитим
+        if fname != prev_fn:
+            emit(f"; @fn {fname}")
         prev_fn = fname
         if ipc != cur_pc:
             for missing in range(cur_pc + 1, ipc + 1):
