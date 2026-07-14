@@ -15,7 +15,9 @@ from pathlib import Path
 WAD_LAYER = '''\
 /* --- WAD в памяти (замена bfio-host-протокола BFDoom; см. HONESTY.md) ---
  * Раскладка: [RVM_WAD_BASE] = размер (0 => не загружен),
- *            [RVM_WAD_BASE+1 ..] = байты WAD по слову на байт.
+ *            [RVM_WAD_BASE+16 ..] = байты WAD по слову на байт
+ *            (выравнивание 16: страницы зоны #W начинаются с
+ *            границы, G2c).
  * На RVM зона предзаполняется начальным состоянием; на eli грузится
  * один раз стартовым GETC-лоадером. Кодировка потока: нибл+1 (два
  * значения 1..16 на байт) — builtin getchar 8cc мапит 0 в EOF(-1),
@@ -39,7 +41,7 @@ static void wad_ensure_loaded(void) {
   b = wad_in_byte();
   c = wad_in_byte();
   size = a + (b << 8) + (c << 16);
-  p = (char *) (RVM_WAD_BASE + 1);
+  p = (char *) (RVM_WAD_BASE + 16);
   for (i = 0; i < size; i++) {
     p[i] = wad_in_byte();
   }
@@ -68,7 +70,7 @@ static int wad_path_size(const char *path) {
 
 FREAD_COPY = '''\
   {
-    char *src = (char *) (RVM_WAD_BASE + 1) + wad_pos;
+    char *src = (char *) (RVM_WAD_BASE + 16) + wad_pos;
     int i;
     for (i = 0; i < total; i++) {
       out[i] = src[i];

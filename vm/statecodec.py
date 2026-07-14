@@ -8,7 +8,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from vm.isa import ROM, WORD_MASK, NUM_REGS, FB_CELLS, Insn, hexw
+from vm.isa import (ROM, WORD_MASK, NUM_REGS, FB_CELLS, WAD_DATA,
+                    WAD_PAGE, Insn, hexw)
 
 
 @dataclass
@@ -24,6 +25,7 @@ class MachState:
     prog: list[Insn] = field(default_factory=list)
     ram: dict[int, int] = field(default_factory=dict)   # v1.1
     fb: bytes = bytes(FB_CELLS)                         # v1.2: пиксель=байт
+    wad: bytes = b""        # G2c: байты WAD с адреса WAD_DATA (зона #W)
 
 
 def _ci(m: MachState) -> str:
@@ -46,10 +48,19 @@ def encode(m: MachState) -> str:
     # FB: пре-populated ячейки [offset4:byte2] — store_fb всегда hit;
     # зона ДО #M (фиксированный размер => короткие сканы, #M растёт позади)
     fb = "".join(f"[{i:04x}:{m.fb[i]:02x}]" for i in range(len(m.fb)))
+    # #W: WAD постранично [ppppp:32hex] (страница 16 байт, page=addr>>4);
+    # хвост последней страницы дополняется нулями
+    wparts = []
+    wad = bytes(m.wad)
+    for i in range(0, len(wad), WAD_PAGE):
+        pg = (WAD_DATA + i) >> 4
+        chunk = wad[i:i + WAD_PAGE].ljust(WAD_PAGE, bytes([0]))
+        wparts.append(f"[{pg:05x}:{chunk.hex()}]")
+    wz = "".join(wparts)
     return (
         f"RVM1|ST:{m.st}|PH:{m.ph}|CI:{_ci(m)}|PC:{hexw(m.pc)}{regs}"
         f"|CLK:{hexw(m.clk)}|IN:{m.inp[m.inp_pos:].hex()}|OUT:{bytes(m.out).hex()}|"
-        f"{ROM}#P{prog}#F{fb}#M{ram}#E"
+        f"{ROM}#P{prog}#F{fb}#W{wz}#M{ram}#E"
     )
 
 

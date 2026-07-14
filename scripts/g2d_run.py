@@ -31,11 +31,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rvs", type=Path, required=True)
     ap.add_argument("--wad", type=Path, help="нибл+1-поток в IN (wadfeed)")
+    ap.add_argument("--wad-mem", type=Path,
+                    help="сырой WAD в зону #W (вместо IN-потока)")
+    ap.add_argument("--snapshot-at-marker", default="",
+                    help="снапшот, когда OUT заканчивается этим маркером")
     ap.add_argument("--max-steps", type=int, default=0)
     ap.add_argument("--snapshot-at", type=int, default=0)
     ap.add_argument("-o", "--output", type=Path)
     ap.add_argument("--dump-out", type=Path,
                     help="писать OUT-байты эмулятора в файл в конце")
+    ap.add_argument("--dump-fb", type=Path,
+                    help="писать FB-зону (кадр) в файл в конце")
     ap.add_argument("--progress-every", type=int, default=2_000_000)
     args = ap.parse_args()
 
@@ -44,14 +50,33 @@ def main() -> None:
           flush=True)
     prog, ram = assemble_full(args.rvs.read_text(encoding="utf-8"))
     inp = args.wad.read_bytes() if args.wad else b""
-    e = RefEmu(prog, inp, ram)
+    wad = b""
+    if args.wad_mem:
+        from vm.isa import WAD_BASE
+        wad = args.wad_mem.read_bytes()
+        ram = dict(ram)
+        ram[WAD_BASE] = len(wad)
+    e = RefEmu(prog, inp, ram, wad=wad)
     print(f"[{time.strftime('%H:%M:%S')}] {len(prog)} insns, "
           f"in={len(inp)} байт; старт", flush=True)
 
     steps = 0
     t1 = time.time()
     tick = args.progress_every
+    marker = args.snapshot_at_marker.encode("latin-1")
+    out_len_seen = -1
     while True:
+        if marker:
+            cur = len(e.m.out)
+            if cur != out_len_seen:               # только после PUTC
+                out_len_seen = cur
+                if e.m.out.endswith(marker):
+                    assert args.output, "--snapshot-at-marker требует -o"
+                    state = encode(e.m)
+                    save_state(args.output, state, passes=0)
+                    print(f"[snapshot@marker] шаг {steps}: {args.output} "
+                          f"(len {len(state)})", flush=True)
+                    marker = b""                  # один раз
         if args.snapshot_at and steps == args.snapshot_at:
             assert args.output, "--snapshot-at требует -o"
             state = encode(e.m)
@@ -77,6 +102,9 @@ def main() -> None:
     if args.dump_out:
         args.dump_out.write_bytes(e.m.out)
         print(f"OUT -> {args.dump_out}", flush=True)
+    if args.dump_fb:
+        args.dump_fb.write_bytes(bytes(e.m.fb))
+        print(f"FB -> {args.dump_fb}", flush=True)
 
 
 if __name__ == "__main__":

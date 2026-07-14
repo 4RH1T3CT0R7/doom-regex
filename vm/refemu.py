@@ -6,7 +6,7 @@ genpattern.py. Один step() = один архитектурный шаг (о�
 """
 from __future__ import annotations
 
-from vm.isa import FB_BASE, WORD_MASK, Insn
+from vm.isa import FB_BASE, WAD_DATA, WORD_MASK, Insn
 from vm.statecodec import MachState
 
 
@@ -14,23 +14,33 @@ def _mem_read(m: MachState, addr: int) -> int:
     off = addr - FB_BASE
     if 0 <= off < len(m.fb):
         return m.fb[off]
+    woff = addr - WAD_DATA
+    if 0 <= woff < len(m.wad):
+        return m.wad[woff]
     return m.ram.get(addr, 0)
 
 
 def _mem_write(m: MachState, addr: int, val: int) -> None:
     off = addr - FB_BASE
     if 0 <= off < len(m.fb):
-        fb = bytearray(m.fb)
-        fb[off] = val & 0xFF
-        m.fb = bytes(fb)
-    else:
-        m.ram[addr] = val
+        if not isinstance(m.fb, bytearray):
+            m.fb = bytearray(m.fb)
+        m.fb[off] = val & 0xFF
+        return
+    woff = addr - WAD_DATA
+    if 0 <= woff < len(m.wad):
+        if not isinstance(m.wad, bytearray):
+            m.wad = bytearray(m.wad)
+        m.wad[woff] = val & 0xFF
+        return
+    m.ram[addr] = val
 
 
 class RefEmu:
     def __init__(self, prog: list[Insn], inp: bytes = b"",
-                 ram: dict[int, int] | None = None):
-        self.m = MachState(prog=list(prog), inp=inp, ram=dict(ram or {}))
+                 ram: dict[int, int] | None = None, wad: bytes = b""):
+        self.m = MachState(prog=list(prog), inp=inp, ram=dict(ram or {}),
+                           wad=wad)
 
     def step(self) -> bool:
         """Исполняет одну инструкцию. False, если машина не в run."""

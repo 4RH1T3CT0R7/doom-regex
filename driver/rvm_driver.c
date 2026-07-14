@@ -248,7 +248,8 @@ static int markov_pass(Vm *vm, const char **applied) {
              * включать только осознанно (ревью G0, finding ccode-2). */
             int rc = pcre2_substitute(
                 r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
-                PCRE2_SUBSTITUTE_GLOBAL | PCRE2_SUBSTITUTE_OVERFLOW_LENGTH,
+                PCRE2_SUBSTITUTE_GLOBAL | PCRE2_SUBSTITUTE_OVERFLOW_LENGTH
+                    | PCRE2_SUBSTITUTE_UNSET_EMPTY,
                 NULL, vm->mctx, (PCRE2_SPTR)r->repl, r->repl_len,
                 (PCRE2_UCHAR *)vm->scratch, &outlen);
             if (rc == PCRE2_ERROR_NOMEMORY) {

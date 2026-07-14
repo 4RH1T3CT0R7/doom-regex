@@ -20,10 +20,21 @@ def main() -> None:
     ap.add_argument("source", type=Path)
     ap.add_argument("-o", "--output", type=Path, required=True)
     ap.add_argument("--input", default="")
+    ap.add_argument("--wad-mem", type=Path,
+                    help="сырой WAD в зону #W начального состояния "
+                         "(+ ячейка размера по WAD_BASE); честность: WAD — "
+                         "часть начального состояния (HONESTY.md)")
     args = ap.parse_args()
 
     prog, ram = assemble_full(args.source.read_text(encoding="utf-8"))
-    state = encode(RefEmu(prog, args.input.encode("latin-1"), ram).m)
+    wad = b""
+    if args.wad_mem:
+        from vm.isa import WAD_BASE
+        wad = args.wad_mem.read_bytes()
+        ram = dict(ram)
+        ram[WAD_BASE] = len(wad)
+    state = encode(RefEmu(prog, args.input.encode("latin-1"), ram,
+                          wad=wad).m)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     save_state(args.output, state, passes=0)
     print(f"{args.output}: {len(prog)} insns, state len {len(state)}")

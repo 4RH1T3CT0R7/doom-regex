@@ -304,6 +304,55 @@ def build_rules() -> list[tuple[str, str, str]]:
               + consume_dst(),
               R1 + "${pre}000000${fv}"))
 
+    # --- WAD-зона #W (G2c): постранично [ppppp:32hex], 16 байт/страница -----
+    # Адрес 00[a-e]xxxxo: pg = биты [23:4] (5 hex), o = младшая цифра.
+    # Ветвление по значению УЖЕ захваченной цифры o — обратный lookup в
+    # ROM-зоне #D ("#D0123456789abcdef"): (?={HOP}D.{k}(?P=o)) истинно <=> o==k.
+    # В replacement конкатенация 16 групп, из которых сматчена одна
+    # (несматченные пусты: PCRE2_SUBSTITUTE_UNSET_EMPTY, python-regex default).
+    # Отсутствие страницы (адрес за WAD) => не матчит => обычные #M-правила.
+    SLOTW = r"(?:\[[^\]]*+\])*?"          # ленивый шаг по страницам #W
+    WVAL = "".join(f"${{w{k:x}}}" for k in range(16))
+    WPRE = "".join(f"${{q{k:x}}}" for k in range(16))
+
+    def off_is(k: int) -> str:
+        return rf"(?={HOP}D.{{{k}}}(?P=o))"
+
+    def wad_read_branches() -> str:
+        return "(?:" + "|".join(
+            off_is(k)
+            + rf"(?={HOP}W{SLOTW}\[(?P=pg):.{{{2 * k}}}(?<w{k:x}>..))"
+            for k in range(16)) + ")"
+
+    def wad_write_branches() -> str:
+        # q-ветка потребляет всё до байта, .{2} съедает старое значение
+        return "(?:" + "|".join(
+            off_is(k)
+            + rf"(?<q{k:x}>{HOP}W{SLOTW}\[(?P=pg):.{{{2 * k}}}).{{2}}"
+            for k in range(16)) + ")"
+
+    WADDR = r"00(?<pg>[a-e].{4})(?<o>.)"
+    R.append(("loadi_wad",
+              ci(0x21, r"(?<d>[0-7])." + WADDR)
+              + wad_read_branches() + consume_dst(),
+              R1 + "${pre}000000" + WVAL))
+    R.append(("load_wad",
+              ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", WADDR)
+              + wad_read_branches() + consume_dst(),
+              R1 + "${pre}000000" + WVAL))
+    R.append(("storei_wad",
+              ci(0x23, r"(?<d>[0-7])." + WADDR)
+              + read_reg(r"(?P=d)", r".{6}(?<b1>.)(?<b0>.)")
+              + wad_write_branches(),
+              R1 + WPRE + "${b1}${b0}"))
+    R.append(("store_wad",
+              ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=d)", WADDR)
+              + read_reg(r"(?P=s)", r".{6}(?<b1>.)(?<b0>.)")
+              + wad_write_branches(),
+              R1 + WPRE + "${b1}${b0}"))
+
     # --- память #M ----------------------------------------------------------
     R.append(("loadi_hit",
               ci(0x21, r"(?<d>[0-7]).(?<imm>.{8})")

@@ -188,5 +188,16 @@ ROM = (zone_d() + zone_q() + zone_l() + zone_a() + zone_s()
 # Зона пре-populated фикс. числом ячеек [oooo:vv] (offset 4 hex, байт 2 hex).
 FB_PREFIX = "f0"          # старшие 2 hex-цифры адреса окна
 FB_BASE = 0xF00000
-FB_W, FB_H = 64, 32       # демо-размер этапа 1 (Doom: 320x200 на этапе 2)
+FB_W, FB_H = 320, 200     # Doom-кадр (этап 1 был 64x32)
 FB_CELLS = FB_W * FB_H
+
+# --- WAD-зона #W (G2c) -------------------------------------------------------
+# Read-mostly байты WAD в постраничной зоне: [ppppp:32hex] — страница 16 байт,
+# page = addr>>4 (5 hex), off = addr & 0xF. Диапазон адресов 00a00010..00efffff
+# (данные с выровненного WAD_DATA; слово размера лежит отдельной #M-ячейкой
+# по адресу WAD_BASE). LOAD/STORE-правила ветвятся по off (16 веток,
+# несматченные группы пусты в replacement — PCRE2_SUBSTITUTE_UNSET_EMPTY,
+# у Python-regex так по умолчанию).
+WAD_BASE = 0xA00000
+WAD_DATA = 0xA00010
+WAD_PAGE = 16

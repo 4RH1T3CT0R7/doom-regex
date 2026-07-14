@@ -51,6 +51,19 @@ void DG_DrawFrame() {
     }
   }
 #endif
+#ifdef RVM_FB_FRAME
+  /* Полный кадр через FB-зону (без putchar-дампа): маркер в OUT после
+   * копии кадра N-1 — точка снапшота; кадр N целиком (тик, рендер,
+   * 64000 STORE в #F) исполняется продолжившей машиной; exit после. */
+  {
+    static int fc = 0;
+    fc++;
+    if (fc == RVM_FB_FRAME - 1)
+      printf("FB_BEGIN:");
+    if (fc == RVM_FB_FRAME)
+      exit(0);
+  }
+#endif
 #ifdef RVM_FRAME_CHECKSUM
   {
     int s1 = 0, s2 = 0;

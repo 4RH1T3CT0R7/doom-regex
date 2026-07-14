@@ -5,7 +5,7 @@
 #ifndef RVM_LUMPS_H
 #define RVM_LUMPS_H
 
-#define RVM_WAD_BASE 0xa00000   /* [.]=размер, [+1..]=байты WAD (см. runtime) */
+#define RVM_WAD_BASE 0xa00000   /* [.]=размер, [+16..]=байты WAD (см. runtime) */
 
 int RU_u16(const void *p);
 int RU_i16(const void *p);

@@ -143,8 +143,10 @@ def P(*lines):
        "LOADI R1, 0xf00000", "HLT"), {"r1": 0xAB}),
     (P("MOVI R0, 0xf007ff", "MOVI R1, 0x11223344", "STORE R0, R1",  # последний
        "LOAD R2, R0", "HLT"), {"r2": 0x44}),                     # байт обрезан
-    (P("MOVI R0, 0xf01000", "MOVI R1, 5", "STORE R0, R1",         # вне зоны ->
+    (P("MOVI R0, 0xf10000", "MOVI R1, 5", "STORE R0, R1",         # вне зоны ->
        "LOAD R2, R0", "HLT"), {"r2": 5}),                        # обычный #M
+    (P("MOVI R0, 0xf0f9ff", "MOVI R1, 0x11223344", "STORE R0, R1",  # посл. px
+       "LOAD R2, R0", "HLT"), {"r2": 0x44}),                     # 320x200
     (P("LOADI R1, 0xf00033", "HLT"), {"r1": 0}),                 # чтение нуля
     # --- v1.2: битовые ------------------------------------------------------
     (P("MOVI R0, 0x12345678", "MOVI R1, 0x0f0f0f0f", "BAND R0, R1", "HLT"),
@@ -249,3 +251,61 @@ def test_fib20_g1a():
     assert m.st == "hlt"
     assert m.regs[0] == 6765, hex(m.regs[0])
     print(f"\nfib(20): {steps} архитектурных шагов, R0=0x{m.regs[0]:08x}")
+
+# --- G2c: WAD-зона #W ------------------------------------------------------
+
+def lockstep_wad(prog, wad, max_steps=100_000):
+    ref = RefEmu(prog, b"", None, wad=wad)
+    state = encode(ref.m)
+    step = 0
+    while True:
+        assert state == encode(ref.m), f"WAD-расхождение на шаге {step}"
+        ref_alive = ref.step()
+        state, rx_alive = advance_to_ph0(state)
+        step += 1
+        if not ref_alive or not rx_alive:
+            assert state == encode(ref.m)
+            assert ref_alive == rx_alive
+            return decode_head(state), ref.m
+        assert step <= max_steps
+
+
+def test_wad_zone_lockstep():
+    from vm.isa import WAD_DATA
+    wad = bytes(range(1, 41))            # 40 байт: 2.5 страницы
+    # чтения: первый/внутристраничный/межстраничный/последний/за концом
+    m, ref = lockstep_wad(P(
+        f"LOADI R0, {WAD_DATA}",         # 0x01 (off 0)
+        f"LOADI R1, {WAD_DATA + 7}",     # 0x08 (off 7)
+        f"LOADI R2, {WAD_DATA + 16}",    # 0x11 (страница 2, off 0)
+        f"LOADI R3, {WAD_DATA + 39}",    # 0x28 (последний, off 7)
+        f"LOADI R5, {WAD_DATA + 40}",    # за концом, но в хвосте страницы -> 0
+        f"MOVI R6, {WAD_DATA + 33}",     # регистровый адрес (off 1)
+        "LOAD R6, R6",
+        "HLT"), wad)
+    assert m.st == "hlt"
+    assert m.regs[0] == 0x01 and m.regs[1] == 0x08
+    assert m.regs[2] == 0x11 and m.regs[3] == 0x28
+    assert m.regs[5] == 0
+    assert m.regs[6] == 34
+    # записи: storei и store, обрезка до байта
+    m, ref = lockstep_wad(P(
+        "MOVI R0, 0xa5",
+        f"STOREI R0, {WAD_DATA + 5}",
+        "MOVI R1, 0x11223377",
+        f"MOVI R2, {WAD_DATA + 17}",
+        "STORE R2, R1",                  # off 1, страница 2
+        f"LOADI R3, {WAD_DATA + 5}",
+        f"LOADI R4, {WAD_DATA + 17}",
+        "HLT"), wad)
+    assert m.st == "hlt"
+    assert m.regs[3] == 0xA5 and m.regs[4] == 0x77
+    assert ref.wad[5] == 0xA5 and ref.wad[17] == 0x77
+    # адрес в WAD-диапазоне маски, но ЗА страницами -> #M-семантика
+    m, _ = lockstep_wad(P(
+        "MOVI R0, 0xbeef",
+        "STOREI R0, 0x00c00000",
+        "LOADI R1, 0x00c00000",
+        "LOADI R2, 0x00b12345",          # чистый miss -> 0
+        "HLT"), wad)
+    assert m.regs[1] == 0xBEEF and m.regs[2] == 0
