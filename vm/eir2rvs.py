@@ -231,9 +231,37 @@ def translate(eir_text: str) -> str:
         "my_div": "MYDIV",       # спец: void my_div(a, b, o) -> [o], [o+1]
         "rvm_span_loop": "DSPAN6",   # v1.4: fused-циклы рендера
         "rvm_col_loop": "DCOL6",
+        "FixedMul": "FMUL2",         # v1.4b: fixed-point суперопкоды
+        "rvm_div48": "DIV48F",
     }
 
     def emit_stub(mnem: str | None) -> None:
+        if mnem == "FMUL2":
+            # fixed_t FixedMul(a, b): B = ((int64)a*b)>>16
+            emit("    MOV T, SP")
+            emit("    ADDI T, 1")
+            emit("    LOAD A, T")
+            emit("    ADDI T, 1")
+            emit("    LOAD B, T")
+            emit("    FMUL")
+            emit("    LOAD T, SP")
+            emit("    ADDI SP, 1")
+            emit("    JMPR T")
+            return
+        if mnem == "DIV48F":
+            # unsigned rvm_div48(nhi, nlo, d): B = quot
+            emit("    MOV T, SP")
+            emit("    ADDI T, 1")
+            emit("    LOAD A, T")
+            emit("    ADDI T, 1")
+            emit("    LOAD B, T")
+            emit("    ADDI T, 1")
+            emit("    LOAD C, T")
+            emit("    DIV48")
+            emit("    LOAD T, SP")
+            emit("    ADDI SP, 1")
+            emit("    JMPR T")
+            return
         if mnem in ("DSPAN6", "DCOL6"):
             # void f(pos, step, n, src, cmap, dest): фиксированная привязка
             # A,B,C,D,U(R7),T(R6)=dest; fused-опкод крутится до C==0

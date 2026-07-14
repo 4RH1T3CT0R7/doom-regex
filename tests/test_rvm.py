@@ -40,7 +40,7 @@ def one_pass(state: str):
     return state, None
 
 
-def advance_to_ph0(state: str, limit: int = 64):
+def advance_to_ph0(state: str, limit: int = 96):
     """Прогоняет проходы до следующего момента PH:0 (или останова)."""
     for _ in range(limit):
         state, applied = one_pass(state)

@@ -623,6 +623,126 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("dcol_end", ci(0x6A, r".{10}")
               + r"(?=" + FIELD + r"R2:00000000)", R1))
 
+    # --- v1.4b: DIV48 (фиксрег: A=nhi16, B=nlo, C=divisor -> B=quot) --------
+    # 48/32 restoring, механика DIV: 48 бит-фаз в PH:4, MF:<ii><rem8><quo8>.
+    # Бит фазы i: i<16 -> бит (15-i) регистра A, иначе бит (31-(i-16)) B.
+    R.append(("div48_init",
+              ci(0x6C, r".{10}"),
+              "RVM1|ST:run|PH:4|CI:${ci}|PC:${pc}|MF:00" + "0" * 16))
+    for i in range(48):
+        if i < 16:
+            reg, bitno = "R0", 15 - i
+        else:
+            reg, bitno = "R1", 31 - (i - 16)
+        pos_left = 7 - (bitno >> 2)
+        bit_in = bitno & 3
+        for b, cls in ((1, BIT_CLS[bit_in]), (0, BIT_NCLS[bit_in])):
+            head = (H4 + rf"(?<ci>6c.{{10}})"
+                    + rf"\|PC:(?<pc>.{{8}})\|MF:{i:02x}"
+                    + mfdig("r") + mfdig("q")
+                    + rf"(?={FIELD}{reg}:"
+                    + rf".{{{pos_left}}}{cls}.{{{7 - pos_left}}})"
+                    + rf"(?={FIELD}R2:" + digits("s") + r")"
+                    + chain("A", "r", "r", str(b), "o"))
+            nxt = (f"RVM1|ST:run|PH:4|CI:${{ci}}|PC:${{pc}}"
+                   f"|MF:{i + 1:02x}")
+            R.append((f"d48_{i}b{b}ge",
+                      head + cmp_cond("o", "s", ge=True)
+                      + chain("S", "o", "s", "0", "w")
+                      + chain("A", "q", "q", "1", "u"),
+                      nxt + outg("w") + outg("u")))
+            R.append((f"d48_{i}b{b}lt",
+                      head + chain("A", "q", "q", "0", "u"),
+                      nxt + outg("o") + outg("u")))
+    R.append(("div48_fin",
+              H4 + r"(?<ci>6c.{10})"
+              + r"\|PC:(?<pc>.{8})\|MF:30" + mfdig("r") + mfdig("q")
+              + rf"(?<pre>{FIELD}R1:).{{8}}",
+              R1 + "${pre}" + outg("q")))
+
+    # --- v1.4b: FMUL (фиксрег: B = ((int64)A*B)>>16, FixedMul 16.16) --------
+    # PH:3, MF:<i><acc12> (13 симв, 48-бит акк). Хорнер MSB-first по цифрам
+    # B: фаза i: acc' = acc*16 + uA*b_digit[i] (частичное — цепочка #T,
+    # сумма 12-цифровой цепочкой #A). Фаза 8: если A<0 (класс a7):
+    # acc[11..8] -= B_low16; фаза 9: если B<0: acc[11..8] -= A_low16.
+    # Фаза a: B <- acc[11..4] (биты 47..16).
+    def mfdig12(prefix: str) -> str:
+        return "".join(rf"(?<{prefix}{i}>.)" for i in range(11, -1, -1))
+
+    def outg12_hi8(p: str) -> str:
+        return "".join(f"${{{p}{i}}}" for i in range(11, 3, -1))
+
+    R.append(("fmul_init",
+              ci(0x6B, r".{10}"),
+              "RVM1|ST:run|PH:3|CI:${ci}|PC:${pc}|MF:0" + "0" * 12))
+
+    def par_chain() -> str:
+        # частичное uA * k: p0..p8 (9 цифр) с переносами t1..t8 по #T
+        parts = [rf"(?={HOP}T[^#]*?:(?P=a0)(?P=k)0=(?<p0>.)(?<t1>.))"]
+        for j in range(1, 8):
+            parts.append(
+                rf"(?={HOP}T[^#]*?:(?P=a{j})(?P=k)(?P=t{j})="
+                rf"(?<p{j}>.)(?<t{j + 1}>.))")
+        return "".join(parts)
+
+    def sum12_chain() -> str:
+        # s = (acc<<4) + partial: слагаемое1 = m[j-1] ('0' при j=0),
+        # слагаемое2 = p[j] (j<8), t8 (j=8), '0' (j>8)
+        xs = ["0"] + [rf"(?P=m{j})" for j in range(11)]
+        ys = ([rf"(?P=p{j})" for j in range(8)] + [r"(?P=t8)"]
+              + ["0", "0", "0"])
+        parts = [rf"(?={HOP}A[^#]*?:{xs[0]}{ys[0]}0=(?<s0>.)(?<sc1>.))"]
+        for j in range(1, 11):
+            parts.append(
+                rf"(?={HOP}A[^#]*?:{xs[j]}{ys[j]}(?P=sc{j})="
+                rf"(?<s{j}>.)(?<sc{j + 1}>.))")
+        parts.append(
+            rf"(?={HOP}A[^#]*?:{xs[11]}{ys[11]}(?P=sc11)=(?<s11>.).)")
+        return "".join(parts)
+
+    for i in range(8):
+        R.append((f"fmul_s{i}",
+                  H3 + rf"(?<ci>6b.{{10}})\|PC:(?<pc>.{{8}})\|MF:{i:x}"
+                  + mfdig12("m")
+                  + read_reg("0", digits("a"))
+                  + read_reg("1", rf".{{{i}}}(?<k>.)")
+                  + par_chain() + sum12_chain(),
+                  f"RVM1|ST:run|PH:3|CI:${{ci}}|PC:${{pc}}|MF:{i + 1:x}"
+                  + "".join(f"${{s{j}}}" for j in range(11, -1, -1))))
+    # коррекции знака: acc[11..8] -= low16(другого операнда)
+    def corr4_chain(src_lo: str) -> str:
+        xs = [rf"(?P=m{8 + j})" for j in range(4)]
+        ys = [rf"(?P={src_lo}{j})" for j in range(4)]
+        parts = [rf"(?={HOP}S[^#]*?:{xs[0]}{ys[0]}0=(?<w0>.)(?<wc1>.))"]
+        for j in range(1, 3):
+            parts.append(
+                rf"(?={HOP}S[^#]*?:{xs[j]}{ys[j]}(?P=wc{j})="
+                rf"(?<w{j}>.)(?<wc{j + 1}>.))")
+        parts.append(
+            rf"(?={HOP}S[^#]*?:{xs[3]}{ys[3]}(?P=wc3)=(?<w3>.).)")
+        return "".join(parts)
+
+    for ph, reg_sign, reg_lo, nm in ((8, "0", "1", "a"), (9, "1", "0", "b")):
+        R.append((f"fmul_c{nm}_neg",
+                  H3 + rf"(?<ci>6b.{{10}})\|PC:(?<pc>.{{8}})\|MF:{ph:x}"
+                  + mfdig12("m")
+                  + read_reg(reg_sign, r"[89a-f].{7}")
+                  + read_reg(reg_lo, r".{4}(?<l3>.)(?<l2>.)(?<l1>.)(?<l0>.)")
+                  + corr4_chain("l"),
+                  f"RVM1|ST:run|PH:3|CI:${{ci}}|PC:${{pc}}|MF:{ph + 1:x}"
+                  + "${w3}${w2}${w1}${w0}"
+                  + "".join(f"${{m{j}}}" for j in range(7, -1, -1))))
+        R.append((f"fmul_c{nm}_pos",
+                  H3 + rf"(?<ci>6b.{{10}})\|PC:(?<pc>.{{8}})\|MF:{ph:x}"
+                  + r"(?<mf>.{12})"
+                  + read_reg(reg_sign, r"[0-7]"),
+                  f"RVM1|ST:run|PH:3|CI:${{ci}}|PC:${{pc}}"
+                  f"|MF:{ph + 1:x}" + "${mf}"))
+    R.append(("fmul_fin",
+              H3 + r"(?<ci>6b.{10})\|PC:(?<pc>.{8})\|MF:a" + mfdig12("m")
+              + rf"(?<pre>{FIELD}R1:).{{8}}",
+              R1 + "${pre}" + outg12_hi8("m")))
+
     # --- останов и трапы (тотальность) --------------------------------------
     R.append(("hlt",
               ci(0xFF, r".{10}"),

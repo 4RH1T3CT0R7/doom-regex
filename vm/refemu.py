@@ -124,6 +124,14 @@ class RefEmu:
         elif op == "MOD":
             if R[s]:
                 R[d] = R[d] % R[s]
+        elif op == "FMUL":
+            a = R[0] - (1 << 32) if R[0] >> 31 else R[0]
+            b = R[1] - (1 << 32) if R[1] >> 31 else R[1]
+            R[1] = ((a * b) >> 16) & WORD_MASK
+        elif op == "DIV48":
+            # A=nhi(16 бит), B=nlo, C=divisor -> B=quot (48/32 restoring)
+            dividend = ((R[0] & 0xFFFF) << 32) | R[1]
+            R[1] = (dividend // R[2]) & WORD_MASK if R[2] else WORD_MASK
         elif op in ("DSPAN", "DCOL"):
             # A=pos, B=step, C=n, D=src, U(7)=cmap, T(6)=dest.
             # Контракт fused-инструкций: texel/цвет обязаны быть

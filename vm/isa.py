@@ -75,6 +75,15 @@ OPS = [
     #     A+=B; T+=320; C-=1.
     Op(0x69, "DSPAN",  ""),
     Op(0x6A, "DCOL",   ""),
+    # v1.4b: суперопкоды fixed-point горячих путей.
+    # DIV48 (фиксрег): B = ((A<<32)|B... точнее (A:B 48-бит: A=верхние 16,
+    #   B=нижние 32) / C; restoring 48 бит-фаз в PH:4 (MF как DIV).
+    #   Семантика = rvm_div48(nhi, nlo, d) из m_fixed.c; /0 -> ffffffff.
+    Op(0x6C, "DIV48",  ""),
+    # FMUL (фиксрег): B = ((int64)(int32)A * (int32)B) >> 16 mod 2^32 —
+    #   семантика FixedMul 16.16. Хорнер 8 фаз с 48-бит акк + знаковые
+    #   коррекции (PH:3, MF:<i><acc12>).
+    Op(0x6B, "FMUL",   ""),
     Op(0xFF, "HLT",    ""),
 ]
 
