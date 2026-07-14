@@ -38,14 +38,9 @@ def _ci(m: MachState) -> str:
 
 def encode(m: MachState) -> str:
     regs = "".join(f"|R{i}:{hexw(m.regs[i])}" for i in range(NUM_REGS))
-    # #P с вехами: перед каждым 256-м слотом маркер ~pppppp~ (старшие
-    # 6 hex адреса) — fetch скачет по вехам вместо линейного скана слотов
-    pparts = []
-    for a, ins in enumerate(m.prog):
-        if (a & 0xFF) == 0:
-            pparts.append(f"~{a >> 8:06x}~")
-        pparts.append(ins.encode(a))
-    prog = "".join(pparts)
+    # #P — плотный массив слотов ФИКСИРОВАННОЙ ширины (23 симв):
+    # fetch прыгает к слоту суммой фикс-прыжков по цифрам PC (O(1))
+    prog = "".join(ins.encode(a) for a, ins in enumerate(m.prog))
     # #M НЕ сортирован: правило вставки prepend'ит новую ячейку сразу после
     # #M за O(1); dict Python хранит порядок вставки => reversed воспроизводит
     # порядок машины байт-в-байт (обновления существующих ячеек порядок не

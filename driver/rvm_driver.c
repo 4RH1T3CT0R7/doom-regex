@@ -18,6 +18,7 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#include <windows.h>
 #endif
 
 #include <stdio.h>
@@ -26,6 +27,8 @@
 #include <time.h>
 
 #define MAX_RULES 4096
+
+static double now_sec(void);
 
 typedef struct { const char *lit; size_t n; int group; } RepTok;
 /* group >= 0 -> подстановка группы; group < 0 -> литерал [lit, lit+n) */
@@ -198,8 +201,13 @@ static void load_rules(Vm *vm, const char *path) {
             die("правило без \\A-якоря нарушает модель одной замены");
 
         int errcode; PCRE2_SIZE erroff;
+        /* PCRE2_ANCHORED: авто-якорение по \A здесь не срабатывает, и
+         * провальный probe платит bump-along по всей строке (~185мкс на
+         * 90МБ вместо O(1)). Все правила \A-якорные (проверено выше) —
+         * флаг компиляции семантику не меняет, а JIT остаётся в деле
+         * (match-время ANCHORED отключало бы JIT-код). */
         r->code = pcre2_compile((PCRE2_SPTR)(pat + 2), PCRE2_ZERO_TERMINATED,
-                                0, &errcode, &erroff, cctx);
+                                PCRE2_ANCHORED, &errcode, &erroff, cctx);
         if (!r->code) {
             PCRE2_UCHAR msg[256];
             pcre2_get_error_message(errcode, msg, sizeof msg);
@@ -224,9 +232,27 @@ static void load_rules(Vm *vm, const char *path) {
                     size_t gl = (size_t)(close - p2 - 2);
                     if (gl >= sizeof gname) die("длинное имя группы");
                     memcpy(gname, p2 + 2, gl); gname[gl] = 0;
-                    int gn = pcre2_substring_number_from_name(
-                        r->code, (PCRE2_SPTR)gname);
-                    if (gn < 0) die("нет такой группы в паттерне");
+                    int gn;
+                    if (gl > 0 && strspn(gname, "0123456789") == gl) {
+                        /* номерная группа ${N} (BF-набор) */
+                        uint32_t ncap = 0;
+                        pcre2_pattern_info(r->code, PCRE2_INFO_CAPTURECOUNT,
+                                           &ncap);
+                        gn = atoi(gname);
+                        if (gn < 1 || (uint32_t)gn > ncap) {
+                            fprintf(stderr, "rvm: правило '%s': нет группы "
+                                    "номер %s\n", r->name, gname);
+                            exit(2);
+                        }
+                    } else {
+                        gn = pcre2_substring_number_from_name(
+                            r->code, (PCRE2_SPTR)gname);
+                        if (gn < 0) {
+                            fprintf(stderr, "rvm: правило '%s': нет группы "
+                                    "'%s' в паттерне\n", r->name, gname);
+                            exit(2);
+                        }
+                    }
                     if (r->n_toks >= 160) die("много токенов");
                     r->toks[r->n_toks].lit = NULL;
                     r->toks[r->n_toks].n = 0;
@@ -335,10 +361,10 @@ static int markov_pass(Vm *vm, const char **applied) {
     for (int i = 0; i < vm->n_rules; i++) {
         Rule *r = &vm->rules[i];
         if (!vm->pure) {
-            double t0 = g_rule_stats ? (double)clock() / CLOCKS_PER_SEC : 0;
+            double t0 = g_rule_stats ? now_sec() : 0;
             int hit = splice_apply(vm, r);
             if (g_rule_stats) {
-                r->t_probe += (double)clock() / CLOCKS_PER_SEC - t0;
+                r->t_probe += now_sec() - t0;
                 r->n_probe++;
                 if (hit) r->n_hit++;
             }
@@ -447,7 +473,7 @@ static void write_live(Vm *vm, const char *rule) {
     size_t w0 = d > 60 ? d - 60 : 0;
     size_t wend_b = d + 96; if (wend_b > vm->len) wend_b = vm->len;
     size_t wend_a = d + 96; /* по старой строке */
-    double el = (double)clock() / CLOCKS_PER_SEC - vm->t_start;
+    double el = now_sec() - vm->t_start;
     if (snprintf(path, sizeof path, "%s/live.json", vm->live_dir)
             >= (int)sizeof path) return;
     if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return;
@@ -574,11 +600,35 @@ static void echo_out(Vm *vm) {
     vm->out_seen = hexlen;
 }
 
+/* Литеральный поиск маркера останова. Поле |ST: всегда в голове
+ * состояния (RVM1|ST:... / BF1|ST:...) — ищем в фикс-окне первых 24
+ * байт: strstr по всей строке стоил 2x5мс на 90МБ КАЖДЫЙ проход
+ * (~60% всего времени драйвера). Семантика честная: тот же
+ * литеральный маркер, просто без скана хвоста. */
+static const char *head_marker(const Vm *vm) {
+    char head[25];
+    size_t n = vm->len < 24 ? vm->len : 24;
+    memcpy(head, vm->state, n);
+    head[n] = 0;
+    if (strstr(head, "|ST:hlt")) return "hlt";
+    if (strstr(head, "|ST:err")) return "err";
+    return NULL;
+}
+
 /* --- main --------------------------------------------------------------*/
 
 static double now_sec(void) {
-    /* clock() на Windows возвращает wall-время процесса — достаточно */
+#ifdef _WIN32
+    /* clock() тикает раз в ~16мс — пробы дешевле тика невидимы для
+     * --rule-stats; QPC даёт наносекундное разрешение */
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER t;
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart / (double)freq.QuadPart;
+#else
     return (double)clock() / (double)CLOCKS_PER_SEC;
+#endif
 }
 
 static int selftest(void) {
@@ -604,6 +654,7 @@ int main(int argc, char **argv) {
     int quiet = 0;
     const char *live_dir = NULL;
     long long live_every = 25;
+    long long save_every = 0;      /* чекпоинт состояния каждые N проходов */
     int pure = 0;
     InTail intail = {NULL, 0, NULL};
     const char *journal_path = NULL, *replay_path = NULL;
@@ -615,6 +666,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--rules") && i + 1 < argc) rules_path = argv[++i];
         else if (!strcmp(argv[i], "--state") && i + 1 < argc) state_path = argv[++i];
         else if (!strcmp(argv[i], "--save-final") && i + 1 < argc) save_final = argv[++i];
+        else if (!strcmp(argv[i], "--save-every") && i + 1 < argc) save_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--max-passes") && i + 1 < argc) max_passes = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--trace-every") && i + 1 < argc) trace_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--fb-every") && i + 1 < argc) fb_every = atoll(argv[++i]);
@@ -642,7 +694,7 @@ int main(int argc, char **argv) {
     pcre2_jit_stack_assign(vm.mctx, NULL, vm.jstack);
     vm.live_dir = live_dir;
     vm.live_every = live_every;
-    vm.t_start = (double)clock() / CLOCKS_PER_SEC;
+    vm.t_start = now_sec();
     vm.probe_md = pcre2_match_data_create(64, NULL);
     if (!vm.probe_md) die("oom probe_md");
     vm.splice_md = pcre2_match_data_create(200, NULL);
@@ -682,22 +734,40 @@ int main(int argc, char **argv) {
             && vm.passes % (unsigned long long)fb_every == 0)
             export_fb(&vm, fb_path);
         if (!markov_pass(&vm, &applied)) {
-            if (strstr(vm.state, "|ST:hlt")) reason = "hlt";
-            else if (strstr(vm.state, "|ST:err")) reason = "err";
+            const char *st = head_marker(&vm);
+            if (st) reason = st;
             break;
         }
         vm.passes++;
         echo_out(&vm);
         if (vm.live_dir && vm.passes % (unsigned long long)vm.live_every == 0)
             write_live(&vm, applied);
+        if (save_every && save_final
+                && vm.passes % (unsigned long long)save_every == 0) {
+            /* чекпоинт: <save_final>.ckpt атомарно (rename поверх) */
+            char ck[1024], cktmp[1040];
+            if (snprintf(ck, sizeof ck, "%s.ckpt", save_final)
+                    < (int)sizeof ck
+                && snprintf(cktmp, sizeof cktmp, "%s.tmp", ck)
+                    < (int)sizeof cktmp) {
+                save_state(&vm, cktmp);
+#ifdef _WIN32
+                MoveFileExA(cktmp, ck, MOVEFILE_REPLACE_EXISTING);
+#else
+                rename(cktmp, ck);
+#endif
+            }
+        }
         if (trace_every && vm.passes % (unsigned long long)trace_every == 0) {
             double dt = now_sec() - t0;
             fprintf(stderr, "[pass %llu | %.0f pass/s | len %zu | %s]\n",
                     vm.passes, dt > 0 ? (double)vm.passes / dt : 0.0,
                     vm.len, applied);
         }
-        if (strstr(vm.state, "|ST:hlt")) { reason = "hlt"; break; }
-        if (strstr(vm.state, "|ST:err")) { reason = "err"; break; }
+        {
+            const char *st = head_marker(&vm);
+            if (st) { reason = st; break; }
+        }
     }
 
     double dt = now_sec() - t0;
