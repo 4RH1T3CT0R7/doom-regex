@@ -37,7 +37,11 @@ typedef struct {
     size_t repl_len;
     RepTok toks[160];
     int n_toks;
+    double t_probe;              /* --rule-stats */
+    unsigned long long n_probe, n_hit;
 } Rule;
+
+static int g_rule_stats = 0;
 
 /* --- SHA-256 (компактная реализация по FIPS 180-4) --------------------- */
 
@@ -331,7 +335,14 @@ static int markov_pass(Vm *vm, const char **applied) {
     for (int i = 0; i < vm->n_rules; i++) {
         Rule *r = &vm->rules[i];
         if (!vm->pure) {
-            if (splice_apply(vm, r)) {
+            double t0 = g_rule_stats ? (double)clock() / CLOCKS_PER_SEC : 0;
+            int hit = splice_apply(vm, r);
+            if (g_rule_stats) {
+                r->t_probe += (double)clock() / CLOCKS_PER_SEC - t0;
+                r->n_probe++;
+                if (hit) r->n_hit++;
+            }
+            if (hit) {
                 *applied = r->name;
                 return 1;
             }
@@ -613,6 +624,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--replay") && i + 1 < argc) replay_path = argv[++i];
         else if (!strcmp(argv[i], "--io-every") && i + 1 < argc) io_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--pure")) pure = 1;
+        else if (!strcmp(argv[i], "--rule-stats")) g_rule_stats = 1;
         else if (!strcmp(argv[i], "--live-dir") && i + 1 < argc) live_dir = argv[++i];
         else if (!strcmp(argv[i], "--live-every") && i + 1 < argc) live_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
@@ -689,6 +701,22 @@ int main(int argc, char **argv) {
     }
 
     double dt = now_sec() - t0;
+    if (g_rule_stats) {
+        fprintf(stderr, "-- rule stats (top-25 по времени probe) --\n");
+        for (int k = 0; k < 25; k++) {
+            int best = -1;
+            for (int i2 = 0; i2 < vm.n_rules; i2++)
+                if (vm.rules[i2].t_probe >= 0 &&
+                    (best < 0 ||
+                     vm.rules[i2].t_probe > vm.rules[best].t_probe))
+                    best = i2;
+            if (best < 0 || vm.rules[best].t_probe <= 0) break;
+            Rule *r = &vm.rules[best];
+            fprintf(stderr, "  %8.3fs %9llu probe %7llu hit  %s\n",
+                    r->t_probe, r->n_probe, r->n_hit, r->name);
+            r->t_probe = -1;
+        }
+    }
     if (fb_path) export_fb(&vm, fb_path);
     if (save_final) save_state(&vm, save_final);
     if (!quiet)

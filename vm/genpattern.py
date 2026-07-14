@@ -58,11 +58,11 @@ def digits(prefix: str) -> str:
 
 
 def adder_chain(table: str) -> str:
-    parts = [rf"(?={HOP}{table}[^#]*?:(?P=d0)(?P=s0)0=(?<o0>.)(?<c1>.))"]
+    parts = [rf"(?=(?>{HOP}{table})[^#]*?:(?P=d0)(?P=s0)0=(?<o0>.)(?<c1>.))"]
     for i in range(1, 7):
         parts.append(
-            rf"(?={HOP}{table}[^#]*?:(?P=d{i})(?P=s{i})(?P=c{i})=(?<o{i}>.)(?<c{i+1}>.))")
-    parts.append(rf"(?={HOP}{table}[^#]*?:(?P=d7)(?P=s7)(?P=c7)=(?<o7>.).)")
+            rf"(?=(?>{HOP}{table})[^#]*?:(?P=d{i})(?P=s{i})(?P=c{i})=(?<o{i}>.)(?<c{i+1}>.))")
+    parts.append(rf"(?=(?>{HOP}{table})[^#]*?:(?P=d7)(?P=s7)(?P=c7)=(?<o7>.).)")
     return "".join(parts)
 
 
@@ -74,8 +74,8 @@ def lt_condition(tq: str = "Q", tl: str = "L") -> str:
     branches = []
     for k in range(7, -1, -1):
         eqs = "".join(
-            rf"(?={HOP}{tq}[^#]*?:(?P=d{j})(?P=s{j}))" for j in range(7, k, -1))
-        branches.append(eqs + rf"(?={HOP}{tl}[^#]*?:(?P=d{k})(?P=s{k}))")
+            rf"(?=(?>{HOP}{tq})[^#]*?:(?P=d{j})(?P=s{j}))" for j in range(7, k, -1))
+        branches.append(eqs + rf"(?=(?>{HOP}{tl})[^#]*?:(?P=d{k})(?P=s{k}))")
     return "(?:" + "|".join(branches) + ")"
 
 
@@ -92,7 +92,7 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("fetch",
               r"\ARVM1\|ST:run\|PH:2\|CI:.{12}"
               r"\|PC:(?<pc6>.{6})(?<pc2>.{2})"
-              + rf"(?={HOP}P(?:~[^~]*+~(?:I[^;]*+;)*+)*?~(?P=pc6)~{SLOT}"
+              + rf"(?=(?>{HOP}P)(?:~[^~]{{6}}~.{{5888}})*?~(?P=pc6)~{SLOT}"  # слот=23 симв, блок=256 слотов: O(1)-прыжок
               + r"I(?P=pc6)(?P=pc2):(?<nci>.{12});)",
               "RVM1|ST:run|PH:0|CI:${nci}|PC:${pc6}${pc2}"))
     R.append(("trap_noslot", H2,
@@ -101,12 +101,12 @@ def build_rules() -> list[tuple[str, str, str]]:
     # --- PH:1 pcinc: каскад (частый путь сразу после fetch) ----------------
     R.append(("pcinc_d0",
               H1 + r"(?<p>.{7})(?<x>[0-9a-e])"
-              + rf"(?={HOP}D[0-9a-f]*?(?P=x)(?<n>.))",
+              + rf"(?=(?>{HOP}D)[0-9a-f]*?(?P=x)(?<n>.))",
               "RVM1|ST:run|PH:2|CI:${ci}|PC:${p}${n}"))
     for i in range(1, 8):
         R.append((f"pcinc_d{i}",
                   H1 + rf"(?<p>.{{{7 - i}}})(?<x>[0-9a-e])f{{{i}}}"
-                  + rf"(?={HOP}D[0-9a-f]*?(?P=x)(?<n>.))",
+                  + rf"(?=(?>{HOP}D)[0-9a-f]*?(?P=x)(?<n>.))",
                   "RVM1|ST:run|PH:2|CI:${ci}|PC:${p}${n}" + "0" * i))
     R.append(("pcinc_wrap", H1 + r"f{8}",
               "RVM1|ST:run|PH:2|CI:${ci}|PC:" + "0" * 8))
@@ -146,7 +146,7 @@ def build_rules() -> list[tuple[str, str, str]]:
     # переноса нет — 1 проход.
     def bitop_chain(table: str) -> str:
         return "".join(
-            rf"(?={HOP}{table}[^#]*?:(?P=d{i})(?P=s{i})=(?<o{i}>.))"
+            rf"(?=(?>{HOP}{table})[^#]*?:(?P=d{i})(?P=s{i})=(?<o{i}>.))"
             for i in range(8))
 
     for name, op, table in [("band", 0x60, "B"), ("bor", 0x61, "O"),
@@ -167,7 +167,7 @@ def build_rules() -> list[tuple[str, str, str]]:
         return f"000000{n >> 4:x}{n & 15:x}"
 
     def h_look(idx: int, a: str, b: str, k: int) -> str:
-        return rf"(?={HOP}H[^#]*?:{a}{b}{k}=(?<o{idx}>.))"
+        return rf"(?=(?>{HOP}H)[^#]*?:{a}{b}{k}=(?<o{idx}>.))"
 
     def dig_ref(j: int, virt: str) -> str:
         return rf"(?P=d{j})" if 0 <= j <= 7 else virt
@@ -253,21 +253,21 @@ def build_rules() -> list[tuple[str, str, str]]:
 
     def mul_chain() -> str:
         # P = Rd * k: p0..p7 с переносами t1..t7 (от младшей цифры)
-        parts = [rf"(?={HOP}T[^#]*?:(?P=d0)(?P=k)0=(?<p0>.)(?<t1>.))"]
+        parts = [rf"(?=(?>{HOP}T)[^#]*?:(?P=d0)(?P=k)0=(?<p0>.)(?<t1>.))"]
         for j in range(1, 7):
             parts.append(
-                rf"(?={HOP}T[^#]*?:(?P=d{j})(?P=k)(?P=t{j})="
+                rf"(?=(?>{HOP}T)[^#]*?:(?P=d{j})(?P=k)(?P=t{j})="
                 rf"(?<p{j}>.)(?<t{j+1}>.))")
         parts.append(
-            rf"(?={HOP}T[^#]*?:(?P=d7)(?P=k)(?P=t7)=(?<p7>.).)")
+            rf"(?=(?>{HOP}T)[^#]*?:(?P=d7)(?P=k)(?P=t7)=(?<p7>.).)")
         # S = (acc<<4) + P: слагаемое1 = a6..a0,'0' (a7 выпадает)
-        parts.append(rf"(?={HOP}A[^#]*?:0(?P=p0)0=(?<o0>.)(?<u1>.))")
+        parts.append(rf"(?=(?>{HOP}A)[^#]*?:0(?P=p0)0=(?<o0>.)(?<u1>.))")
         for j in range(1, 7):
             parts.append(
-                rf"(?={HOP}A[^#]*?:(?P=a{j-1})(?P=p{j})(?P=u{j})="
+                rf"(?=(?>{HOP}A)[^#]*?:(?P=a{j-1})(?P=p{j})(?P=u{j})="
                 rf"(?<o{j}>.)(?<u{j+1}>.))")
         parts.append(
-            rf"(?={HOP}A[^#]*?:(?P=a6)(?P=p7)(?P=u7)=(?<o7>.).)")
+            rf"(?=(?>{HOP}A)[^#]*?:(?P=a6)(?P=p7)(?P=u7)=(?<o7>.).)")
         return "".join(parts)
 
     for i in range(8):
@@ -300,31 +300,31 @@ def build_rules() -> list[tuple[str, str, str]]:
     def chain(table: str, xp: str, yp: str, c0: str, op_: str,
               last_drop: bool = True) -> str:
         """Цепочка (#A/#S) над группами xp_i,yp_i с переносом c0 -> op_i."""
-        parts = [rf"(?={HOP}{table}[^#]*?:(?P={xp}0)(?P={yp}0){c0}="
+        parts = [rf"(?=(?>{HOP}{table})[^#]*?:(?P={xp}0)(?P={yp}0){c0}="
                  rf"(?<{op_}0>.)(?<{op_}c1>.))"]
         for i in range(1, 7):
             parts.append(
-                rf"(?={HOP}{table}[^#]*?:(?P={xp}{i})(?P={yp}{i})"
+                rf"(?=(?>{HOP}{table})[^#]*?:(?P={xp}{i})(?P={yp}{i})"
                 rf"(?P={op_}c{i})=(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
         parts.append(
-            rf"(?={HOP}{table}[^#]*?:(?P={xp}7)(?P={yp}7)(?P={op_}c7)="
+            rf"(?=(?>{HOP}{table})[^#]*?:(?P={xp}7)(?P={yp}7)(?P={op_}c7)="
             rf"(?<{op_}7>.).)")
         return "".join(parts)
 
     def cmp_cond(xp: str, yp: str, ge: bool) -> str:
         """x >= y (ge) либо x < y по цифрам xp_i/yp_i (7=старшая)."""
         branches = []
-        eq_all = "".join(rf"(?={HOP}Q[^#]*?:(?P={xp}{j})(?P={yp}{j}))"
+        eq_all = "".join(rf"(?=(?>{HOP}Q)[^#]*?:(?P={xp}{j})(?P={yp}{j}))"
                          for j in range(7, -1, -1))
         for k in range(7, -1, -1):
-            eqs = "".join(rf"(?={HOP}Q[^#]*?:(?P={xp}{j})(?P={yp}{j}))"
+            eqs = "".join(rf"(?=(?>{HOP}Q)[^#]*?:(?P={xp}{j})(?P={yp}{j}))"
                           for j in range(7, k, -1))
             if ge:   # gt на k-й: пара (y,x) в #L
                 branches.append(
-                    eqs + rf"(?={HOP}L[^#]*?:(?P={yp}{k})(?P={xp}{k}))")
+                    eqs + rf"(?=(?>{HOP}L)[^#]*?:(?P={yp}{k})(?P={xp}{k}))")
             else:
                 branches.append(
-                    eqs + rf"(?={HOP}L[^#]*?:(?P={xp}{k})(?P={yp}{k}))")
+                    eqs + rf"(?=(?>{HOP}L)[^#]*?:(?P={xp}{k})(?P={yp}{k}))")
         if ge:
             branches.insert(0, eq_all)
         return "(?:" + "|".join(branches) + ")"
@@ -382,30 +382,30 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("storei_fb",
               ci(0x23, r"(?<d>[0-7]).00f0(?<o>.{4})")
               + read_reg(r"(?P=d)", r".{6}(?<b1>.)(?<b0>.)")
-              + rf"(?<pre>{HOP}F[^#]*?\[(?P=o):).{{2}}",
+              + rf"(?<pre>(?>{HOP}F)[^#]*?\[(?P=o):).{{2}}",
               R1 + "${pre}${b1}${b0}"))
     R.append(("store_fb",
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"00f0(?<o>.{4})")
               + read_reg(r"(?P=s)", r".{6}(?<b1>.)(?<b0>.)")
-              + rf"(?<pre>{HOP}F[^#]*?\[(?P=o):).{{2}}",
+              + rf"(?<pre>(?>{HOP}F)[^#]*?\[(?P=o):).{{2}}",
               R1 + "${pre}${b1}${b0}"))
     R.append(("loadi_fb",
               ci(0x21, r"(?<d>[0-7]).00f0(?<o>.{4})")
-              + rf"(?={HOP}F[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
+              + rf"(?=(?>{HOP}F)[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
               + consume_dst(),
               R1 + "${pre}000000${fv}"))
     R.append(("load_fb",
               ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=s)", r"00f0(?<o>.{4})")
-              + rf"(?={HOP}F[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
+              + rf"(?=(?>{HOP}F)[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
               + consume_dst(),
               R1 + "${pre}000000${fv}"))
 
     # --- WAD-зона #W (G2c): постранично [ppppp:32hex], 16 байт/страница -----
     # Адрес 00[a-e]xxxxo: pg = биты [23:4] (5 hex), o = младшая цифра.
     # Ветвление по значению УЖЕ захваченной цифры o — обратный lookup в
-    # ROM-зоне #D ("#D0123456789abcdef"): (?={HOP}D.{k}(?P=o)) истинно <=> o==k.
+    # ROM-зоне #D ("#D0123456789abcdef"): (?=(?>{HOP}D).{k}(?P=o)) истинно <=> o==k.
     # В replacement конкатенация 16 групп, из которых сматчена одна
     # (несматченные пусты: PCRE2_SUBSTITUTE_UNSET_EMPTY, python-regex default).
     # Отсутствие страницы (адрес за WAD) => не матчит => обычные #M-правила.
@@ -414,19 +414,19 @@ def build_rules() -> list[tuple[str, str, str]]:
     WPRE = "".join(f"${{q{k:x}}}" for k in range(16))
 
     def off_is(k: int) -> str:
-        return rf"(?={HOP}D.{{{k}}}(?P=o))"
+        return rf"(?=(?>{HOP}D).{{{k}}}(?P=o))"
 
     def wad_read_branches() -> str:
         return "(?:" + "|".join(
             off_is(k)
-            + rf"(?={HOP}W{SLOTW}\[(?P=pg):.{{{2 * k}}}(?<w{k:x}>..))"
+            + rf"(?=(?>{HOP}W){SLOTW}\[(?P=pg):.{{{2 * k}}}(?<w{k:x}>..))"
             for k in range(16)) + ")"
 
     def wad_write_branches() -> str:
         # q-ветка потребляет всё до байта, .{2} съедает старое значение
         return "(?:" + "|".join(
             off_is(k)
-            + rf"(?<q{k:x}>{HOP}W{SLOTW}\[(?P=pg):.{{{2 * k}}}).{{2}}"
+            + rf"(?<q{k:x}>(?>{HOP}W){SLOTW}\[(?P=pg):.{{{2 * k}}}).{{2}}"
             for k in range(16)) + ")"
 
     WADDR = r"00(?<pg>[a-e].{4})(?<o>.)"
@@ -454,7 +454,7 @@ def build_rules() -> list[tuple[str, str, str]]:
     # --- память #M ----------------------------------------------------------
     R.append(("loadi_hit",
               ci(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
-              + rf"(?={HOP}M[^#]*?\[(?P=imm):(?<mv>.{{8}})\])"
+              + rf"(?=(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=imm):(?<mv>.{{8}})\])"
               + consume_dst(),
               R1 + "${pre}${mv}"))
     R.append(("loadi_miss",
@@ -463,7 +463,7 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("load_hit",
               ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=s)", r"(?<addr>.{8})")
-              + rf"(?={HOP}M[^#]*?\[(?P=addr):(?<mv>.{{8}})\])"
+              + rf"(?=(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=addr):(?<mv>.{{8}})\])"
               + consume_dst(),
               R1 + "${pre}${mv}"))
     R.append(("load_miss",
@@ -472,24 +472,24 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("storei_hit",
               ci(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
-              + rf"(?<pre>{HOP}M[^#]*?\[(?P=imm):).{{8}}",
+              + rf"(?<pre>(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=imm):).{{8}}",
               R1 + "${pre}${v}"))
     R.append(("storei_ins",       # O(1) prepend сразу после #M (без сортировки)
               ci(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
-              + rf"(?<pre>{HOP}M)",
+              + rf"(?<pre>(?>{HOP}M))",
               R1 + "${pre}[${imm}:${v}]"))
     R.append(("store_hit",
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"(?<addr>.{8})")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
-              + rf"(?<pre>{HOP}M[^#]*?\[(?P=addr):).{{8}}",
+              + rf"(?<pre>(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=addr):).{{8}}",
               R1 + "${pre}${v}"))
     R.append(("store_ins",        # O(1) prepend сразу после #M
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"(?<addr>.{8})")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
-              + rf"(?<pre>{HOP}M)",
+              + rf"(?<pre>(?>{HOP}M))",
               R1 + "${pre}[${addr}:${v}]"))
 
     # --- переходы: взятые -> PH:2 (refetch), невзятые -> PH:1 ---------------
@@ -554,14 +554,14 @@ def build_rules() -> list[tuple[str, str, str]]:
     def chain_mixed(table: str, xs: list, ys: list, c0: str,
                     op_: str) -> str:
         """Цепочка #A/#S: xs[i], ys[i] — готовые regex-атомы цифр."""
-        parts = [rf"(?={HOP}{table}[^#]*?:{xs[0]}{ys[0]}{c0}="
+        parts = [rf"(?=(?>{HOP}{table})[^#]*?:{xs[0]}{ys[0]}{c0}="
                  rf"(?<{op_}0>.)(?<{op_}c1>.))"]
         for i in range(1, 7):
             parts.append(
-                rf"(?={HOP}{table}[^#]*?:{xs[i]}{ys[i]}(?P={op_}c{i})="
+                rf"(?=(?>{HOP}{table})[^#]*?:{xs[i]}{ys[i]}(?P={op_}c{i})="
                 rf"(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
         parts.append(
-            rf"(?={HOP}{table}[^#]*?:{xs[7]}{ys[7]}(?P={op_}c7)="
+            rf"(?=(?>{HOP}{table})[^#]*?:{xs[7]}{ys[7]}(?P={op_}c7)="
             rf"(?<{op_}7>.).)")
         return "".join(parts)
 
@@ -576,7 +576,7 @@ def build_rules() -> list[tuple[str, str, str]]:
 
     def mem_val_lookup(addr_prefix: str, out1: str, out0: str) -> str:
         tag = "".join(rf"(?P={addr_prefix}{i})" for i in range(7, -1, -1))
-        return (rf"(?={HOP}M[^#]*?\[{tag}:.{{6}}"
+        return (rf"(?=(?>{HOP}M)(?:\[[^\]]*+\])*?\[{tag}:.{{6}}"
                 rf"(?<{out1}>.)(?<{out0}>.)\])")
 
     def fused_rule(name: str, opcode: int, spot_part: str,
@@ -601,7 +601,7 @@ def build_rules() -> list[tuple[str, str, str]]:
                 + chain_mixed("A", refs("a"), refs("b"), "0", "o")
                 + chain_mixed("A", refs("t"), lits(dest_step), "0", "v")
                 + chain_mixed("S", refs("c"), lits(1), "0", "w"))
-        mid = (rf"(?<mid>{HOP}F(?:\[[^\]]*+\])*?"
+        mid = (rf"(?<mid>(?>{HOP}F)(?:\[[^\]]*+\])*?"
                rf"\[(?P=t3)(?P=t2)(?P=t1)(?P=t0):).{{2}}")
         repl = ("RVM1|ST:run|PH:0|CI:${ci}|PC:${pc}"
                 + "|R0:" + outg("o")
@@ -615,12 +615,12 @@ def build_rules() -> list[tuple[str, str, str]]:
         return (name, head + calc + mid, repl)
 
     # DSPAN: spot = ((A>>4)&0xFC0)|(A>>26): n2=a3, n1=#G(a2,a7), n0=#J(a7,a6)
-    dspan_spot = (rf"(?={HOP}G[^#]*?:(?P=a2)(?P=a7)=(?<n1>.))"
-                  rf"(?={HOP}J[^#]*?:(?P=a7)(?P=a6)=(?<n0>.))")
+    dspan_spot = (rf"(?=(?>{HOP}G)[^#]*?:(?P=a2)(?P=a7)=(?<n1>.))"
+                  rf"(?=(?>{HOP}J)[^#]*?:(?P=a7)(?P=a6)=(?<n0>.))")
     R.append(fused_rule("dspan_px", 0x69, dspan_spot,
                         ["(?P=n0)", "(?P=n1)", "(?P=a3)"] + ["0"] * 5, 1))
     # DCOL: spot = (A>>16)&127: n1 = a5&7 (таблица #B), n0 = a4
-    dcol_spot = rf"(?={HOP}B[^#]*?:(?P=a5)7=(?<n1>.))"
+    dcol_spot = rf"(?=(?>{HOP}B)[^#]*?:(?P=a5)7=(?<n1>.))"
     R.append(fused_rule("dcol_px", 0x6A, dcol_spot,
                         ["(?P=a4)", "(?P=n1)"] + ["0"] * 6, 320))
     R.append(("dspan_end", ci(0x69, r".{10}")
@@ -683,10 +683,10 @@ def build_rules() -> list[tuple[str, str, str]]:
 
     def par_chain() -> str:
         # частичное uA * k: p0..p8 (9 цифр) с переносами t1..t8 по #T
-        parts = [rf"(?={HOP}T[^#]*?:(?P=a0)(?P=k)0=(?<p0>.)(?<t1>.))"]
+        parts = [rf"(?=(?>{HOP}T)[^#]*?:(?P=a0)(?P=k)0=(?<p0>.)(?<t1>.))"]
         for j in range(1, 8):
             parts.append(
-                rf"(?={HOP}T[^#]*?:(?P=a{j})(?P=k)(?P=t{j})="
+                rf"(?=(?>{HOP}T)[^#]*?:(?P=a{j})(?P=k)(?P=t{j})="
                 rf"(?<p{j}>.)(?<t{j + 1}>.))")
         return "".join(parts)
 
@@ -696,13 +696,13 @@ def build_rules() -> list[tuple[str, str, str]]:
         xs = ["0"] + [rf"(?P=m{j})" for j in range(11)]
         ys = ([rf"(?P=p{j})" for j in range(8)] + [r"(?P=t8)"]
               + ["0", "0", "0"])
-        parts = [rf"(?={HOP}A[^#]*?:{xs[0]}{ys[0]}0=(?<s0>.)(?<sc1>.))"]
+        parts = [rf"(?=(?>{HOP}A)[^#]*?:{xs[0]}{ys[0]}0=(?<s0>.)(?<sc1>.))"]
         for j in range(1, 11):
             parts.append(
-                rf"(?={HOP}A[^#]*?:{xs[j]}{ys[j]}(?P=sc{j})="
+                rf"(?=(?>{HOP}A)[^#]*?:{xs[j]}{ys[j]}(?P=sc{j})="
                 rf"(?<s{j}>.)(?<sc{j + 1}>.))")
         parts.append(
-            rf"(?={HOP}A[^#]*?:{xs[11]}{ys[11]}(?P=sc11)=(?<s11>.).)")
+            rf"(?=(?>{HOP}A)[^#]*?:{xs[11]}{ys[11]}(?P=sc11)=(?<s11>.).)")
         return "".join(parts)
 
     for i in range(8):
@@ -718,13 +718,13 @@ def build_rules() -> list[tuple[str, str, str]]:
     def corr4_chain(src_lo: str) -> str:
         xs = [rf"(?P=m{8 + j})" for j in range(4)]
         ys = [rf"(?P={src_lo}{j})" for j in range(4)]
-        parts = [rf"(?={HOP}S[^#]*?:{xs[0]}{ys[0]}0=(?<w0>.)(?<wc1>.))"]
+        parts = [rf"(?=(?>{HOP}S)[^#]*?:{xs[0]}{ys[0]}0=(?<w0>.)(?<wc1>.))"]
         for j in range(1, 3):
             parts.append(
-                rf"(?={HOP}S[^#]*?:{xs[j]}{ys[j]}(?P=wc{j})="
+                rf"(?=(?>{HOP}S)[^#]*?:{xs[j]}{ys[j]}(?P=wc{j})="
                 rf"(?<w{j}>.)(?<wc{j + 1}>.))")
         parts.append(
-            rf"(?={HOP}S[^#]*?:{xs[3]}{ys[3]}(?P=wc3)=(?<w3>.).)")
+            rf"(?=(?>{HOP}S)[^#]*?:{xs[3]}{ys[3]}(?P=wc3)=(?<w3>.).)")
         return "".join(parts)
 
     for ph, reg_sign, reg_lo, nm in ((8, "0", "1", "a"), (9, "1", "0", "b")):
