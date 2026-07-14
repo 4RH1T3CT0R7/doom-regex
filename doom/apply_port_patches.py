@@ -373,10 +373,81 @@ def fix_f_finale(t: str) -> str:
     return t
 
 
+RVM_LOOPS = """
+/* v1.4: внутренние циклы рендера, заменяемые fused-инструкциями RVM
+ * (eir2rvs стабит тела на DSPAN/DCOL: пиксель за один проход машины).
+ * tier-1 компилирует эти honest-циклы как есть — оракул не затронут. */
+void rvm_span_loop(unsigned int position, unsigned int step,
+                   unsigned int n, byte *src, byte *cmap, byte *dest)
+{
+    while (n != 0) {
+        unsigned int spot = ((position >> 4) & 0x0fc0) | (position >> 26);
+        *dest = cmap[src[spot]];
+        dest++;
+        position += step;
+        n--;
+    }
+}
+void rvm_col_loop(unsigned int frac, unsigned int fracstep,
+                  unsigned int n, byte *src, byte *cmap, byte *dest)
+{
+    while (n != 0) {
+        *dest = cmap[src[(frac >> 16) & 127]];
+        dest += SCREENWIDTH;
+        frac += fracstep;
+        n--;
+    }
+}
+"""
+
+
 def fix_r_draw(t: str) -> str:
     # рамка вокруг вью — патчи brdr_*; flat-фон (строка src=) остаётся сырым
     t = sub_n(t, r'W_CacheLumpName\(DEH_String\("brdr_',
               'RVM_CachePatchName(DEH_String("brdr_', 8)
+
+    # fused-циклы: вставляем функции перед первым определением колонны
+    anchor = "void R_DrawColumn (void)"
+    assert anchor in t, "R_DrawColumn не найден"
+    t = t.replace(anchor, RVM_LOOPS + "\n" + anchor, 1)
+
+    # R_DrawColumn: внутренний цикл -> rvm_col_loop
+    old_col = """    do 
+    {
+	// Re-map color indices from wall texture column
+	//  using a lighting/special effects LUT.
+	*dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
+	
+	dest += SCREENWIDTH; 
+	frac += fracstep;
+	
+    } while (count--);"""
+    new_col = ("    rvm_col_loop((unsigned int) frac, "
+               "(unsigned int) fracstep, (unsigned int) (count + 1), "
+               "dc_source, dc_colormap, dest);")
+    assert old_col in t, "цикл R_DrawColumn не найден"
+    t = t.replace(old_col, new_col, 1)
+
+    # R_DrawSpan: внутренний цикл -> rvm_span_loop
+    old_span = """    do
+    {
+	// Calculate current texture index in u,v.
+        ytemp = (position >> 4) & 0x0fc0;
+        xtemp = (position >> 26);
+        spot = xtemp | ytemp;
+
+	// Lookup pixel from flat texture tile,
+	//  re-index using light/colormap.
+	*dest++ = ds_colormap[ds_source[spot]];
+
+        position += step;
+
+    } while (count--);"""
+    new_span = ("    rvm_span_loop(position, step, "
+                "(unsigned int) (count + 1), "
+                "ds_source, ds_colormap, dest);")
+    assert old_span in t, "цикл R_DrawSpan не найден"
+    t = t.replace(old_span, new_span, 1)
     return t
 
 

@@ -124,6 +124,34 @@ class RefEmu:
         elif op == "MOD":
             if R[s]:
                 R[d] = R[d] % R[s]
+        elif op in ("DSPAN", "DCOL"):
+            # A=pos, B=step, C=n, D=src, U(7)=cmap, T(6)=dest.
+            # Контракт fused-инструкций: texel/цвет обязаны быть
+            # материализованными #M-ячейками, dest — FB-ячейкой; miss =
+            # err:BADOP (правило не матчит -> catch-all, согласовано).
+            if R[2] == 0:
+                pass                        # конец цикла -> next
+            else:
+                if op == "DSPAN":
+                    spot = ((R[0] >> 4) & 0xFC0) | (R[0] >> 26)
+                    dstep = 1
+                else:
+                    spot = (R[0] >> 16) & 127
+                    dstep = 320
+                texel = m.ram.get((R[3] + spot) & WORD_MASK)
+                col = (None if texel is None
+                       else m.ram.get((R[7] + (texel & 0xFF)) & WORD_MASK))
+                dest_off = R[6] - FB_BASE
+                if col is None or not (0 <= dest_off < len(m.fb)):
+                    m.st = "err:BADOP"
+                    return False
+                if not isinstance(m.fb, bytearray):
+                    m.fb = bytearray(m.fb)
+                m.fb[dest_off] = col & 0xFF
+                R[0] = (R[0] + R[1]) & WORD_MASK
+                R[6] = (R[6] + dstep) & WORD_MASK
+                R[2] = (R[2] - 1) & WORD_MASK
+                nxt = m.pc                  # само-повтор
         elif op == "PUTC":
             if not isinstance(m.out, bytearray):
                 m.out = bytearray(m.out)

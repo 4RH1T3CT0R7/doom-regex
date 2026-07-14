@@ -229,9 +229,25 @@ def translate(eir_text: str) -> str:
         "__builtin_div": "DIV",  # v1.3b
         "__builtin_mod": "MOD",
         "my_div": "MYDIV",       # спец: void my_div(a, b, o) -> [o], [o+1]
+        "rvm_span_loop": "DSPAN6",   # v1.4: fused-циклы рендера
+        "rvm_col_loop": "DCOL6",
     }
 
     def emit_stub(mnem: str | None) -> None:
+        if mnem in ("DSPAN6", "DCOL6"):
+            # void f(pos, step, n, src, cmap, dest): фиксированная привязка
+            # A,B,C,D,U(R7),T(R6)=dest; fused-опкод крутится до C==0
+            emit("    MOV T, SP")
+            for reg in ("A", "B", "C", "D", "U"):
+                emit("    ADDI T, 1")
+                emit(f"    LOAD {reg}, T")
+            emit("    ADDI T, 1")
+            emit("    LOAD T, T")           # dest -> T
+            emit("    DSPAN" if mnem == "DSPAN6" else "    DCOL")
+            emit("    LOAD T, SP")
+            emit("    ADDI SP, 1")
+            emit("    JMPR T")
+            return
         if mnem == "MYDIV":
             # void my_div(a, b, o): [o] = a/b, [o+1] = a%b
             emit("    MOV T, SP")

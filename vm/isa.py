@@ -63,6 +63,18 @@ OPS = [
     # битам; /0 -> quot=0xFFFFFFFF, rem=делимое — детерминированно)
     Op(0x67, "DIV",    "ds"),   # R[d] /= R[s]
     Op(0x68, "MOD",    "ds"),   # R[d] %= R[s]
+    # v1.4: fused-инструкции внутренних циклов рендера (план O4).
+    # Само-повтор: пока счётчик C != 0 — эффект одного пикселя за такт
+    # (PC не меняется); при C == 0 — обычный переход к следующей.
+    # Привязка регистров (см. стабы rvm_span_loop/rvm_col_loop):
+    #   DSPAN: A=position, B=step, C=пикселей, D=src, U=cmap, T=dest;
+    #     spot = ((A>>4)&0xFC0)|(A>>26); M[T]=M[U+M[D+spot]]&0xFF;
+    #     A+=B; T+=1; C-=1.
+    #   DCOL:  A=frac, B=fracstep, C=пикселей, D=src, U=cmap, T=dest;
+    #     spot = (A>>16)&127; M[T]=M[U+M[D+spot]]&0xFF;
+    #     A+=B; T+=320; C-=1.
+    Op(0x69, "DSPAN",  ""),
+    Op(0x6A, "DCOL",   ""),
     Op(0xFF, "HLT",    ""),
 ]
 
@@ -184,8 +196,31 @@ def zone_t() -> str:
     return "".join(parts)
 
 
+def zone_g() -> str:
+    """#G — spot-цифра n1 DSPAN: :uv=r, r = (u>>2)*4 + (v>>2)
+    (верхние 2 бита цифр A[11:8]=a2 и A[31:28]=a7)."""
+    dig = "0123456789abcdef"
+    parts = ["#G"]
+    for u in range(16):
+        for v in range(16):
+            parts.append(f":{dig[u]}{dig[v]}={dig[(u >> 2) * 4 + (v >> 2)]}")
+    return "".join(parts)
+
+
+def zone_j() -> str:
+    """#J — spot-цифра n0 DSPAN: :uv=r, r = (u&3)*4 + (v>>2)
+    (нижние 2 бита a7 и верхние 2 бита a6)."""
+    dig = "0123456789abcdef"
+    parts = ["#J"]
+    for u in range(16):
+        for v in range(16):
+            parts.append(f":{dig[u]}{dig[v]}={dig[(u & 3) * 4 + (v >> 2)]}")
+    return "".join(parts)
+
+
 ROM = (zone_d() + zone_q() + zone_l() + zone_a() + zone_s()
-       + zone_b() + zone_o() + zone_x() + zone_h() + zone_t())
+       + zone_b() + zone_o() + zone_x() + zone_h() + zone_t()
+       + zone_g() + zone_j())
 
 # --- фреймбуфер -------------------------------------------------------------
 # Окно адресов f0xxxx: STORE в него пишет младший байт в ячейку зоны #F.
