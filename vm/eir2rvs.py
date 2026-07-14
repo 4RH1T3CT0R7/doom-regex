@@ -226,9 +226,31 @@ def translate(eir_text: str) -> str:
         "__builtin_shr": "SHR",  "__builtin_sar": "SAR",
         "__builtin_not": None,   # BXOR с 0xffffffff
         "__builtin_mul": "MUL",  # v1.3: микрофазный нативный MUL
+        "__builtin_div": "DIV",  # v1.3b
+        "__builtin_mod": "MOD",
+        "my_div": "MYDIV",       # спец: void my_div(a, b, o) -> [o], [o+1]
     }
 
     def emit_stub(mnem: str | None) -> None:
+        if mnem == "MYDIV":
+            # void my_div(a, b, o): [o] = a/b, [o+1] = a%b
+            emit("    MOV T, SP")
+            emit("    ADDI T, 1")
+            emit("    LOAD A, T")       # a
+            emit("    ADDI T, 1")
+            emit("    LOAD B, T")       # b
+            emit("    ADDI T, 1")
+            emit("    LOAD C, T")       # o
+            emit("    MOV D, A")
+            emit("    DIV D, B")
+            emit("    STORE C, D")      # [o] = quot
+            emit("    ADDI C, 1")
+            emit("    MOD A, B")
+            emit("    STORE C, A")      # [o+1] = rem
+            emit("    LOAD T, SP")
+            emit("    ADDI SP, 1")
+            emit("    JMPR T")
+            return
         emit("    MOV T, SP")
         emit("    ADDI T, 1")
         emit("    LOAD B, T")           # B = a

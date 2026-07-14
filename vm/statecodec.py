@@ -67,7 +67,7 @@ def encode(m: MachState) -> str:
 _HEAD = re.compile(
     r"\ARVM1\|ST:(?P<st>run|hlt|err:[A-Z]+)\|PH:(?P<ph>\d)"
     r"\|CI:(?P<ci>[0-9a-f-]{12})\|PC:(?P<pc>[0-9a-f]{8})"
-    r"(?:\|MF:(?P<mf>[0-9a-f]{9}))?"   # v1.3: транзиентная микрофаза MUL
+    r"(?:\|MF:(?P<mf>[0-9a-f]{18}|[0-9a-f]{9}))?"   # v1.3: транзиентная микрофаза MUL
     + "".join(rf"\|R{i}:(?P<r{i}>[0-9a-f]{{8}})" for i in range(NUM_REGS))
     + r"\|CLK:(?P<clk>[0-9a-f]{8})\|IN:(?P<in>[0-9a-f]*)\|OUT:(?P<out>[0-9a-f]*)\|"
 )

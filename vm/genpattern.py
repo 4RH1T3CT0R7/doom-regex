@@ -280,6 +280,98 @@ def build_rules() -> list[tuple[str, str, str]]:
               + consume_dst(),
               R1 + "${pre}${a7}${a6}${a5}${a4}${a3}${a2}${a1}${a0}"))
 
+    # --- v1.3b: DIV/MOD (микрофазы PH:4, restoring по битам MSB-first) ------
+    # |MF:<ii><rem8><quo8> (18 симв). Фаза i: b = бит (31-i) делимого (Rd,
+    # проверка КЛАССОМ цифры — без захвата); rem' = rem+rem+b (цепочка #A,
+    # c0=b); если rem' >= divisor (Rs): rem'-=divisor (#S), qbit=1.
+    # quo' = quo+quo+qbit. Семантика /0: ge-ветка всегда -> quot=ffffffff,
+    # rem=делимое (refemu согласован). CPI ~36 проходов (~x22 к my_div).
+    H4 = r"\ARVM1\|ST:run\|PH:4\|CI:"
+    BIT_CLS = {  # бит k цифры установлен <=> цифра в классе
+        3: "[89a-f]", 2: "[4-7c-f]", 1: "[2367abef]", 0: "[13579bdf]"}
+    BIT_NCLS = {
+        3: "[0-7]", 2: "[0-38-9a-b]", 1: "[014589cd]", 0: "[02468ace]"}
+
+    def chain(table: str, xp: str, yp: str, c0: str, op_: str,
+              last_drop: bool = True) -> str:
+        """Цепочка (#A/#S) над группами xp_i,yp_i с переносом c0 -> op_i."""
+        parts = [rf"(?={HOP}{table}[^#]*?:(?P={xp}0)(?P={yp}0){c0}="
+                 rf"(?<{op_}0>.)(?<{op_}c1>.))"]
+        for i in range(1, 7):
+            parts.append(
+                rf"(?={HOP}{table}[^#]*?:(?P={xp}{i})(?P={yp}{i})"
+                rf"(?P={op_}c{i})=(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
+        parts.append(
+            rf"(?={HOP}{table}[^#]*?:(?P={xp}7)(?P={yp}7)(?P={op_}c7)="
+            rf"(?<{op_}7>.).)")
+        return "".join(parts)
+
+    def cmp_cond(xp: str, yp: str, ge: bool) -> str:
+        """x >= y (ge) либо x < y по цифрам xp_i/yp_i (7=старшая)."""
+        branches = []
+        eq_all = "".join(rf"(?={HOP}Q[^#]*?:(?P={xp}{j})(?P={yp}{j}))"
+                         for j in range(7, -1, -1))
+        for k in range(7, -1, -1):
+            eqs = "".join(rf"(?={HOP}Q[^#]*?:(?P={xp}{j})(?P={yp}{j}))"
+                          for j in range(7, k, -1))
+            if ge:   # gt на k-й: пара (y,x) в #L
+                branches.append(
+                    eqs + rf"(?={HOP}L[^#]*?:(?P={yp}{k})(?P={xp}{k}))")
+            else:
+                branches.append(
+                    eqs + rf"(?={HOP}L[^#]*?:(?P={xp}{k})(?P={yp}{k}))")
+        if ge:
+            branches.insert(0, eq_all)
+        return "(?:" + "|".join(branches) + ")"
+
+    def outg(p: str) -> str:
+        return "".join(f"${{{p}{i}}}" for i in range(7, -1, -1))
+
+    R.append(("div_init",
+              ci(0x67, r"(?<d>[0-7])(?<s>[0-7]).{8}"),
+              "RVM1|ST:run|PH:4|CI:${ci}|PC:${pc}|MF:00"
+              + "0" * 16))
+    R.append(("mod_init",
+              ci(0x68, r"(?<d>[0-7])(?<s>[0-7]).{8}"),
+              "RVM1|ST:run|PH:4|CI:${ci}|PC:${pc}|MF:00"
+              + "0" * 16))
+
+    def mfdig(prefix: str) -> str:
+        return "".join(rf"(?<{prefix}{i}>.)" for i in range(7, -1, -1))
+
+    for i in range(32):
+        dig_pos = i >> 2           # позиция цифры слева (0..7)
+        bit_in = 3 - (i & 3)       # бит внутри цифры
+        for b, cls in ((1, BIT_CLS[bit_in]), (0, BIT_NCLS[bit_in])):
+            head = (H4 + rf"(?<ci>6[78](?<d>[0-7])(?<s>[0-7]).{{8}})"
+                    + rf"\|PC:(?<pc>.{{8}})\|MF:{i:02x}"
+                    + mfdig("r") + mfdig("q")
+                    + read_reg(r"(?P=d)",
+                               rf".{{{dig_pos}}}{cls}.{{{7 - dig_pos}}}")
+                    + read_reg(r"(?P=s)", digits("s"))
+                    + chain("A", "r", "r", str(b), "o"))
+            nxt = f"RVM1|ST:run|PH:4|CI:${{ci}}|PC:${{pc}}|MF:{i + 1:02x}"
+            # ge: rem' >= divisor -> вычитание, qbit=1
+            R.append((f"dv{i}b{b}ge",
+                      head + cmp_cond("o", "s", ge=True)
+                      + chain("S", "o", "s", "0", "w")
+                      + chain("A", "q", "q", "1", "u"),
+                      nxt + outg("w") + outg("u")))
+            # lt: rem'' = rem', qbit=0
+            R.append((f"dv{i}b{b}lt",
+                      head + chain("A", "q", "q", "0", "u"),
+                      nxt + outg("o") + outg("u")))
+    R.append(("div_fin",
+              H4 + r"(?<ci>67(?<d>[0-7])[0-7].{8})"
+              + r"\|PC:(?<pc>.{8})\|MF:20" + mfdig("r") + mfdig("q")
+              + consume_dst(),
+              R1 + "${pre}" + outg("q")))
+    R.append(("mod_fin",
+              H4 + r"(?<ci>68(?<d>[0-7])[0-7].{8})"
+              + r"\|PC:(?<pc>.{8})\|MF:20" + mfdig("r") + mfdig("q")
+              + consume_dst(),
+              R1 + "${pre}" + outg("r")))
+
     # --- фреймбуфер (раньше #M-правил; окно 00f0oooo) ----------------------
     R.append(("storei_fb",
               ci(0x23, r"(?<d>[0-7]).00f0(?<o>.{4})")

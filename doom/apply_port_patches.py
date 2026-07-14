@@ -287,6 +287,18 @@ def fix_st_lib(t: str) -> str:
 
 
 def fix_i_video(t: str) -> str:
+    # Рендер ПРЯМО в видеозону #F (0xf00000): убирает копию кадра в
+    # DG_DrawFrame (18.4% хвоста кадра по профилю) и делает построение
+    # кадра видимым вьюверу в порядке отрисовки (колонны/спаны).
+    t = sub_n(t, r"I_VideoBuffer = \(byte\*\)Z_Malloc "
+                 r"\(SCREENWIDTH \* SCREENHEIGHT, PU_STATIC, NULL\);",
+              "I_VideoBuffer = (byte *) 0xf00000;  /* видеозона RVM */")
+    t = sub_n(t, r"Z_Free \(I_VideoBuffer\);",
+              "/* видеозона не в куче */")
+    return _fix_i_video_rest(t)
+
+
+def _fix_i_video_rest(t: str) -> str:
     # DG_ScreenBuffer никем не читается (DG_DrawFrame берёт I_VideoBuffer
     # напрямую), а конвертация под __eir__ ещё и битая (uint32_t*-запись =
     # 1 слово с шагом 4). Убираем 64000 палитровых lookup'ов на кадр —

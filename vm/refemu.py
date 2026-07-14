@@ -119,6 +119,11 @@ class RefEmu:
                            if sign and R[s] else 0)) & WORD_MASK
         elif op == "MUL":
             R[d] = (R[d] * R[s]) & WORD_MASK
+        elif op == "DIV":
+            R[d] = (R[d] // R[s]) if R[s] else WORD_MASK
+        elif op == "MOD":
+            if R[s]:
+                R[d] = R[d] % R[s]
         elif op == "PUTC":
             if not isinstance(m.out, bytearray):
                 m.out = bytearray(m.out)

@@ -34,8 +34,10 @@ void DG_DrawFrame() {
   int i;
   unsigned char *src = I_VideoBuffer;
   int *dst = (int *) RVM_FB_BASE;
-  for (i = 0; i < RVM_FB_PIXELS; i++) {
-    dst[i] = src[i];
+  if (src != (unsigned char *) RVM_FB_BASE) {   /* рендер уже в видеозоне */
+    for (i = 0; i < RVM_FB_PIXELS; i++) {
+      dst[i] = src[i];
+    }
   }
 #ifdef RVM_DUMP_FRAME
   {
