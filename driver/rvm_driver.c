@@ -42,6 +42,7 @@ typedef struct {
     int n_toks;
     double t_probe;              /* --rule-stats */
     unsigned long long n_probe, n_hit;
+    unsigned long long n_skip, skip_bytes;   /* identity-skip статистика */
 } Rule;
 
 static int g_rule_stats = 0;
@@ -326,10 +327,25 @@ static int splice_apply(Vm *vm, Rule *r) {
         }
         return 0;
     }
+    if (rc == 0) {
+        /* ovector мал — токены читали бы мимо захватов: тихая порча */
+        fprintf(stderr, "rvm: правило '%s': ovector переполнен\n", r->name);
+        exit(4);
+    }
     PCRE2_SIZE *ov = pcre2_get_ovector_pointer(vm->splice_md);
     size_t mend = ov[1];
-    /* рендер replacement */
-    size_t out = 0;
+    /* Сегментированный рендер с IDENTITY-SKIP: group-токен, чей
+     * источник уже стоит на своём dest-смещении (ov[2g] == out — т.е.
+     * суммарный сдвиг к этой точке нулевой), не рендерится и не
+     * копируется. Даёт O(1) замены с гигантскими ${pre}/${mid}
+     * (store_n, dspan/dcol v2.0) и сам отклоняет MF-фазы, где источник
+     * сдвинут на ширину |MF:. Проверка — сравнение СМЕЩЕНИЙ, не
+     * содержимого (honesty); эталон — pure-режим, срабатывание скипа
+     * видно в --rule-stats (skip-счётчики). */
+    enum { MAX_SEGS = 168 };
+    struct Seg { size_t dst, rb0, len; } segs[MAX_SEGS];
+    int n_segs = 0;
+    size_t out = 0, rb = 0, seg_dst = 0, seg_rb0 = 0;
     for (int k = 0; k < r->n_toks; k++) {
         RepTok *tk = &r->toks[k];
         const char *src; size_t n;
@@ -337,15 +353,39 @@ static int splice_apply(Vm *vm, Rule *r) {
         else {
             PCRE2_SIZE a = ov[2 * tk->group], b = ov[2 * tk->group + 1];
             if (a == PCRE2_UNSET) { src = ""; n = 0; }
-            else { src = vm->state + a; n = (size_t)(b - a); }
+            else {
+                src = vm->state + a;
+                n = (size_t)(b - a);
+                if ((size_t)a == out && n) {   /* байты уже на месте */
+                    if (rb > seg_rb0) {
+                        if (n_segs >= MAX_SEGS) die("MAX_SEGS");
+                        segs[n_segs].dst = seg_dst;
+                        segs[n_segs].rb0 = seg_rb0;
+                        segs[n_segs++].len = rb - seg_rb0;
+                    }
+                    out += n;
+                    seg_dst = out;
+                    seg_rb0 = rb;
+                    r->n_skip++;
+                    r->skip_bytes += n;
+                    continue;
+                }
+            }
         }
-        if (out + n + 1 > vm->rcap) {
-            vm->rcap = (out + n) * 2 + 4096;
+        if (rb + n + 1 > vm->rcap) {
+            vm->rcap = (rb + n) * 2 + 4096;
             vm->rbuf = realloc(vm->rbuf, vm->rcap);
             if (!vm->rbuf) die("oom rbuf");
         }
-        memcpy(vm->rbuf + out, src, n);
+        memcpy(vm->rbuf + rb, src, n);
+        rb += n;
         out += n;
+    }
+    if (rb > seg_rb0) {
+        if (n_segs >= MAX_SEGS) die("MAX_SEGS");
+        segs[n_segs].dst = seg_dst;
+        segs[n_segs].rb0 = seg_rb0;
+        segs[n_segs++].len = rb - seg_rb0;
     }
     /* live-дифф: старая изменяемая зона в scratch */
     if (vm->live_dir) {
@@ -355,6 +395,8 @@ static int splice_apply(Vm *vm, Rule *r) {
         vm->prev_len = vm->len;
     }
     if (out != mend) {
+        /* скипы всегда ниже зоны сдвига: скип требует нулевого сдвига
+         * до себя, а дельта возникает только после него */
         size_t newlen = vm->len - mend + out;
         if (newlen + 1 > vm->cap) {
             vm->cap = newlen + 65536;
@@ -364,7 +406,8 @@ static int splice_apply(Vm *vm, Rule *r) {
         memmove(vm->state + out, vm->state + mend, vm->len - mend + 1);
         vm->len = newlen;
     }
-    memcpy(vm->state, vm->rbuf, out);
+    for (int s = 0; s < n_segs; s++)
+        memcpy(vm->state + segs[s].dst, vm->rbuf + segs[s].rb0, segs[s].len);
     return 1;
 }
 
@@ -721,14 +764,25 @@ int main(int argc, char **argv) {
     vm.t_start = now_sec();
     vm.probe_md = pcre2_match_data_create(64, NULL);
     if (!vm.probe_md) die("oom probe_md");
-    vm.splice_md = pcre2_match_data_create(200, NULL);
-    if (!vm.splice_md) die("oom splice_md");
     vm.pure = pure;
     vm.rcap = 1 << 20;
     vm.rbuf = malloc(vm.rcap);
     if (!vm.rbuf) die("oom rbuf");
 
     load_rules(&vm, rules_path);
+    {   /* ovector по фактическому максимуму групп набора: фикс-размер
+         * 200 у fused-правил с деревьями был впритык (rc==0 = тихая
+         * порча; теперь и громкая проверка в splice_apply) */
+        uint32_t max_caps = 0;
+        for (int i2 = 0; i2 < vm.n_rules; i2++) {
+            uint32_t nc = 0;
+            pcre2_pattern_info(vm.rules[i2].code,
+                               PCRE2_INFO_CAPTURECOUNT, &nc);
+            if (nc > max_caps) max_caps = nc;
+        }
+        vm.splice_md = pcre2_match_data_create(max_caps + 1, NULL);
+        if (!vm.splice_md) die("oom splice_md");
+    }
     load_state(&vm, state_path);
     if (journal_path) {
         intail.journal = fopen(journal_path, "wb");
@@ -808,8 +862,10 @@ int main(int argc, char **argv) {
                     best = i2;
             if (best < 0 || vm.rules[best].t_probe <= 0) break;
             Rule *r = &vm.rules[best];
-            fprintf(stderr, "  %8.3fs %9llu probe %7llu hit  %s\n",
-                    r->t_probe, r->n_probe, r->n_hit, r->name);
+            fprintf(stderr, "  %8.3fs %9llu probe %7llu hit %7llu skip"
+                    " %10llu skipB  %s\n",
+                    r->t_probe, r->n_probe, r->n_hit, r->n_skip,
+                    r->skip_bytes, r->name);
             r->t_probe = -1;
         }
     }
