@@ -123,6 +123,7 @@ typedef struct {
     size_t rcap;
     unsigned long long passes;
     size_t out_seen; /* сколько hex-символов OUT уже выведено */
+    size_t out_off;  /* кэш смещения "|OUT:" (v2.0: OUT в хвосте) */
     size_t prev_len;             /* длина строки до последней замены */
     const char *live_dir;        /* live-экспорт для вьювера (fb + лента) */
     long long live_every;
@@ -648,7 +649,19 @@ static InjectRec *load_journal(const char *path, int *out_n) {
 /* --- OUT: механический hex->байты транскод (аналог UART) --------------- */
 
 static void echo_out(Vm *vm) {
-    const char *tag = strstr(vm->state, "|OUT:");
+    /* v2.0: OUT в хвосте строки — прямой strstr сканировал бы 90МБ на
+     * КАЖДЫЙ проход. Кэшируем смещение метки (сдвигается только при
+     * вставках перед хвостом — тогда обратный пере-скан от конца). */
+    const char *tag = NULL;
+    if (vm->out_off && vm->out_off + 5 <= vm->len
+        && memcmp(vm->state + vm->out_off, "|OUT:", 5) == 0)
+        tag = vm->state + vm->out_off;
+    else {
+        for (const char *q = vm->state + (vm->len >= 5 ? vm->len - 5 : 0);
+             q >= vm->state; q--)
+            if (q[0] == '|' && memcmp(q, "|OUT:", 5) == 0) { tag = q; break; }
+        if (tag) vm->out_off = (size_t)(tag - vm->state);
+    }
     if (!tag) return;
     const char *p = tag + 5;
     const char *end = strchr(p, '|');

@@ -67,10 +67,14 @@ def encode(m: MachState) -> str:
         chunk = wad[i:i + WAD_PAGE].ljust(WAD_PAGE, bytes([0]))
         wparts.append(f"[{pg:05x}:{chunk.hex()}]")
     wz = "".join(wparts)
+    # v2.0 Э2: IN/OUT в ХВОСТЕ строки — их переменная длина больше не
+    # сдвигает зоны (предусловие фикс-смещений); сентинел |Z терминирует
+    # OUT для putc-якоря
     return (
         f"RVM1|ST:{m.st}|PH:{m.ph}|CI:{_ci(m)}|PC:{hexw(m.pc)}{regs}"
-        f"|CLK:{hexw(m.clk)}|IN:{m.inp[m.inp_pos:].hex()}|OUT:{bytes(m.out).hex()}|"
+        f"|CLK:{hexw(m.clk)}|"
         f"{ROM}#N{nz}#P{prog}#F{fb}#W{wz}#M{ram}#E"
+        f"|IN:{m.inp[m.inp_pos:].hex()}|OUT:{bytes(m.out).hex()}|Z"
     )
 
 
@@ -79,8 +83,10 @@ _HEAD = re.compile(
     r"\|CI:(?P<ci>[0-9a-f-]{12})\|PC:(?P<pc>[0-9a-f]{8})"
     r"(?:\|MF:(?P<mf>[0-9a-f]{18}|[0-9a-f]{13}|[0-9a-f]{9}))?"   # v1.3: транзиентная микрофаза MUL
     + "".join(rf"\|R{i}:(?P<r{i}>[0-9a-f]{{8}})" for i in range(NUM_REGS))
-    + r"\|CLK:(?P<clk>[0-9a-f]{8})\|IN:(?P<in>[0-9a-f]*)\|OUT:(?P<out>[0-9a-f]*)\|"
+    + r"\|CLK:(?P<clk>[0-9a-f]{8})\|"
 )
+# v2.0 Э2: IN/OUT в хвосте строки
+_TAIL = re.compile(r"\|IN:(?P<in>[0-9a-f]*)\|OUT:(?P<out>[0-9a-f]*)\|Z\Z")
 
 
 def decode_head(state: str) -> MachState:
@@ -94,8 +100,11 @@ def decode_head(state: str) -> MachState:
     m.pc = int(mo["pc"], 16) & WORD_MASK
     m.regs = [int(mo[f"r{i}"], 16) for i in range(NUM_REGS)]
     m.clk = int(mo["clk"], 16)
-    m.inp = bytes.fromhex(mo["in"])
-    m.out = bytes.fromhex(mo["out"])
+    mt = _TAIL.search(state)
+    if not mt:
+        raise ValueError("нет хвостового IN/OUT (|IN:..|OUT:..|Z)")
+    m.inp = bytes.fromhex(mt["in"])
+    m.out = bytes.fromhex(mt["out"])
     return m
 
 
