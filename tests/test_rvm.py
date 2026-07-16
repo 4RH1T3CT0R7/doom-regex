@@ -54,9 +54,9 @@ def advance_to_ph0(state: str, limit: int = 96):
     raise AssertionError("PH:0 не достигнут за лимит проходов")
 
 
-def lockstep(prog, inp=b"", max_steps=100_000):
+def lockstep(prog, inp=b"", max_steps=100_000, ram=None):
     """Пошаговый дифф: encode(эмулятор) == строка regex-машины на каждом шаге."""
-    ref = RefEmu(prog, inp)
+    ref = RefEmu(prog, inp, ram)
     state = encode(ref.m)
     step = 0
     while True:
@@ -309,3 +309,36 @@ def test_wad_zone_lockstep():
         "LOADI R2, 0x00b12345",          # чистый miss -> 0
         "HLT"), wad)
     assert m.regs[1] == 0xBEEF and m.regs[2] == 0
+
+
+def test_dspan_lockstep():
+    """v2.0 Э5: три вектора ревью — texel из #N (hit), непрописанный
+    texel < NRAM_TOP (дефолт 0), вычисленный адрес >= NRAM_TOP при
+    материализованной highmem-ячейке (BADOP у обеих сторон)."""
+    from vm.isa import NRAM_TOP, FB_BASE
+
+    def dspan_prog(src):
+        return P(
+            "MOVI R0, 0",              # A: spot = 0
+            "MOVI R1, 0x10000",        # B: step
+            "MOVI R2, 2",              # C: 2 пикселя
+            f"MOVI R3, {src:#x}",      # D: src
+            f"MOVI R7, 0x200",         # U: cmap
+            f"MOVI R6, {FB_BASE + 0x10:#x}",  # T: dest
+            "DSPAN",
+            "HLT")
+
+    # 1) hit: texel и цвет материализованы в #N
+    ram = {0x100: 0x55, 0x200 + 0x55: 0x77, 0x200: 0x99}
+    head, _ = lockstep(dspan_prog(0x100), ram=ram)
+    assert head.st == "hlt"
+
+    # 2) непрописанный texel < NRAM_TOP: texel=0 -> цвет cmap[0]=0x99
+    head, _ = lockstep(dspan_prog(0x300), ram=ram)
+    assert head.st == "hlt"
+
+    # 3) src за NRAM_TOP при материализованной highmem-ячейке -> BADOP
+    ram3 = dict(ram)
+    ram3[NRAM_TOP + 0x40] = 0x55
+    head, _ = lockstep(dspan_prog(NRAM_TOP + 0x40), ram=ram3)
+    assert head.st == "err:BADOP"

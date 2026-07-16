@@ -262,6 +262,32 @@ TEST_PROFILE = _os.environ.get("RVM_TEST_PROFILE", "") == "small"
 if TEST_PROFILE:
     NRAM_TOP = 0x1000         # 4096 слов, зона 32КБ
     PROG_SLOTS = 0x1000       # паддинг #P (v2.0 этап 3)
+    WAD_PAGES = 16            # окно #W: 256 байт (WAD-правила на HOP)
 else:
     NRAM_TOP = 0x700000       # 7.3М слов, зона 58.7МБ
     PROG_SLOTS = 0x100000     # 16^5 слотов x 23 симв = 24.1МБ
+    # полное окно [WAD_DATA, FB_BASE): зона #W тотальна для диапазона
+    # адресов 00a00010..00efffff — дерево страниц без за-зонных прыжков
+    WAD_PAGES = (0xF00000 - 0xA00010) // 16
+
+# Паддинг #P до PROG_SLOTS — НЕФЕТЧАБЕЛЬНЫЕ заглушки (23 симв): эхо
+# fetch "I(?P=p7)..." не матчит '-' против hex-цифры PC -> trap_noslot,
+# бит-в-бит с refemu (NOSLOT при pc >= len(prog)). Опкод ff был бы HLT
+# и маскировал бы беглые переходы под чистый останов.
+PROG_PAD_SLOT = "I--------:------------;"
+
+# --- v2.0 Э3: фиксированные смещения зон (заголовок фикс-длинный на
+# PH:0/1/2 — |MF: живёт только внутри PH:3/4, IN/OUT в хвосте) --------------
+HDR_LEN = (len("RVM1|ST:run|PH:0|CI:") + 12 + len("|PC:") + 8
+           + NUM_REGS * (len("|Rx:") + 8) + len("|CLK:") + 8 + 1)
+# ROM определяется ниже (зависит от таблиц); OFF_* — см. offsets()
+
+
+def zone_offsets(rom_len: int) -> dict[str, int]:
+    """Абсолютные смещения НАЧАЛА СОДЕРЖИМОГО зон (после '#X')."""
+    off_n = HDR_LEN + rom_len + 2
+    off_p = off_n + 8 * NRAM_TOP + 2
+    off_f = off_p + 23 * PROG_SLOTS + 2
+    off_w = off_f + 9 * FB_CELLS + 2
+    off_m = off_w + 40 * WAD_PAGES + 2
+    return {"N": off_n, "P": off_p, "F": off_f, "W": off_w, "M": off_m}

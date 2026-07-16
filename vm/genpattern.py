@@ -125,10 +125,44 @@ def build_rules() -> list[tuple[str, str, str]]:
             rf"(?(q{i}{b})" + jump((1 << b) * 23 * 16 ** i) + "|)"
             for b in range(3, -1, -1))
 
+    def tree_cap(pfx: str, ndig: int, msd_top: int = 15,
+                 msd_cls: str | None = None) -> str:
+        """Захват ndig цифр с бинарными маркерами битов; старшая цифра
+        ограничена [0-msd_top] или произвольным классом msd_cls."""
+        parts = []
+        for i in range(ndig - 1, -1, -1):
+            if i == ndig - 1 and msd_cls is not None:
+                for b in range(3, -1, -1):
+                    parts.append(rf"(?>(?={BITCLS[b]})(?<{pfx}{i}{b}>)|)")
+                parts.append(msd_cls)
+                continue
+            top = msd_top if i == ndig - 1 else 15
+            for b in (range(2, -1, -1) if top <= 7 else range(3, -1, -1)):
+                parts.append(rf"(?>(?={BITCLS[b]})(?<{pfx}{i}{b}>)|)")
+            parts.append(f"[0-{top:x}]" if top < 15 else ".")
+        return "".join(parts)
+
+    def tree_jumps(pfx: str, ndig: int, unit: int, msd_top: int = 15,
+                   msd_full: bool = False) -> str:
+        out = []
+        for i in range(ndig - 1, -1, -1):
+            top = 15 if (i == ndig - 1 and msd_full)                 else (msd_top if i == ndig - 1 else 15)
+            for b in (range(2, -1, -1) if top <= 7 else range(3, -1, -1)):
+                out.append(rf"(?({pfx}{i}{b})"
+                           + jump((1 << b) * unit * 16 ** i) + "|)")
+        return "".join(out)
+
+
+    # v2.0 Э3: якорь — ФИКС-ПРЫЖОК от позиции после PC-цифр до начала
+    # содержимого #P (HOP-скан пересекал бы #N: 58.7МБ SIMD на каждый
+    # fetch). Заголовок на PH:2 фикс-длинный (|MF: только в PH:3/4).
+    from vm.isa import ROM as _ROM, zone_offsets
+    OFFS = zone_offsets(len(_ROM))
+    FETCH_POS = len("RVM1|ST:run|PH:2|CI:") + 12 + len("|PC:") + 8
     R.append(("fetch",
               r"\ARVM1\|ST:run\|PH:2\|CI:.{12}\|PC:"
               + "".join(pc_digit_cap(i) for i in range(7, -1, -1))
-              + rf"(?=(?>{HOP}P)"
+              + r"(?=" + jump(OFFS["P"] - FETCH_POS)
               + "".join(pc_digit_jumps(i) for i in range(4, -1, -1))
               + r"I(?P=p7)(?P=p6)(?P=p5)(?P=p4)(?P=p3)(?P=p2)(?P=p1)(?P=p0)"
               + r":(?<nci>.{12});)",
@@ -419,25 +453,29 @@ def build_rules() -> list[tuple[str, str, str]]:
 
     # --- фреймбуфер (раньше #M-правил; окно 00f0oooo) ----------------------
     R.append(("storei_fb",
-              ci(0x23, r"(?<d>[0-7]).00f0(?<o>.{4})")
+              ci(0x23, r"(?<d>[0-7]).00f0(?<o>" + tree_cap("fo", 4) + r")")
               + read_reg(r"(?P=d)", r".{6}(?<b1>.)(?<b0>.)")
-              + rf"(?<pre>(?>{HOP}F)[^#]*?\[(?P=o):).{{2}}",
+              + r"(?<pre>" + jump(OFFS["F"] - FETCH_POS)
+              + tree_jumps("fo", 4, 9) + r"\[(?P=o):).{2}",
               R1 + "${pre}${b1}${b0}"))
     R.append(("store_fb",
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
-              + read_reg(r"(?P=d)", r"00f0(?<o>.{4})")
+              + read_reg(r"(?P=d)", r"00f0(?<o>" + tree_cap("fo", 4) + r")")
               + read_reg(r"(?P=s)", r".{6}(?<b1>.)(?<b0>.)")
-              + rf"(?<pre>(?>{HOP}F)[^#]*?\[(?P=o):).{{2}}",
+              + r"(?<pre>" + jump(OFFS["F"] - FETCH_POS)
+              + tree_jumps("fo", 4, 9) + r"\[(?P=o):).{2}",
               R1 + "${pre}${b1}${b0}"))
     R.append(("loadi_fb",
-              ci(0x21, r"(?<d>[0-7]).00f0(?<o>.{4})")
-              + rf"(?=(?>{HOP}F)[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
+              ci(0x21, r"(?<d>[0-7]).00f0(?<o>" + tree_cap("fo", 4) + r")")
+              + r"(?=" + jump(OFFS["F"] - FETCH_POS)
+              + tree_jumps("fo", 4, 9) + r"\[(?P=o):(?<fv>.{2})\])"
               + consume_dst(),
               R1 + "${pre}000000${fv}"))
     R.append(("load_fb",
               ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
-              + read_reg(r"(?P=s)", r"00f0(?<o>.{4})")
-              + rf"(?=(?>{HOP}F)[^#]*?\[(?P=o):(?<fv>.{{2}})\])"
+              + read_reg(r"(?P=s)", r"00f0(?<o>" + tree_cap("fo", 4) + r")")
+              + r"(?=" + jump(OFFS["F"] - FETCH_POS)
+              + tree_jumps("fo", 4, 9) + r"\[(?P=o):(?<fv>.{2})\])"
               + consume_dst(),
               R1 + "${pre}000000${fv}"))
 
@@ -452,20 +490,31 @@ def build_rules() -> list[tuple[str, str, str]]:
     WVAL = "".join(f"${{w{k:x}}}" for k in range(16))
     WPRE = "".join(f"${{q{k:x}}}" for k in range(16))
 
+    # v2.0 Э4: позиция страницы pg = OFF_W + 38*(pg - PG0). Дерево даёт
+    # сумму 38*pg, константа -38*PG0 включена в базовый прыжок от
+    # «виртуального нуля». В small-профиле он отрицателен — остаётся
+    # HOP-скан (WAD-зона мала, боевой профиль так не гоняется).
+    from vm.isa import WAD_DATA as _WD
+    _WJ = OFFS["W"] - 40 * (_WD >> 4) - FETCH_POS
+    if _WJ >= 0:
+        _wad_seek = jump(_WJ) + tree_jumps("wp", 5, 40, msd_full=True)
+    else:
+        _wad_seek = rf"(?>{HOP}W)" + SLOTW
+
     def off_is(k: int) -> str:
         return rf"(?=(?>{HOP}D).{{{k}}}(?P=o))"
 
     def wad_read_branches() -> str:
         return "(?:" + "|".join(
             off_is(k)
-            + rf"(?=(?>{HOP}W){SLOTW}\[(?P=pg):.{{{2 * k}}}(?<w{k:x}>..))"
+            + rf"(?={_wad_seek}\[(?P=pg):.{{{2 * k}}}(?<w{k:x}>..))"
             for k in range(16)) + ")"
 
     def wad_write_branches() -> str:
         # q-ветка потребляет всё до байта, .{2} съедает старое значение
         return "(?:" + "|".join(
             off_is(k)
-            + rf"(?<q{k:x}>(?>{HOP}W){SLOTW}\[(?P=pg):.{{{2 * k}}}).{{2}}"
+            + rf"(?<q{k:x}>{_wad_seek}\[(?P=pg):.{{{2 * k}}}).{{2}}"
             for k in range(16)) + ")"
 
     # --- v2.0: плоская зона #N (адреса < NRAM_TOP, O(1) по дереву) ----------
@@ -484,54 +533,35 @@ def build_rules() -> list[tuple[str, str, str]]:
         N_MSD -= 1
         N_MSD_VAL = 16
 
-    def naddr_cap() -> str:
-        parts = []
-        for i in range(7, -1, -1):
-            if i > N_MSD:
-                parts.append("0")
-                continue
-            top = N_MSD_VAL - 1 if i == N_MSD else 15
-            for b in (range(2, -1, -1) if top <= 7 else range(3, -1, -1)):
-                parts.append(rf"(?>(?={BITCLS[b]})(?<na{i}{b}>)|)")
-            parts.append(f"[0-{top:x}]" if top < 15 else ".")
-        return "".join(parts)
-
-    def naddr_jumps() -> str:
-        out = []
-        for i in range(N_MSD, -1, -1):
-            top = N_MSD_VAL - 1 if i == N_MSD else 15
-            for b in (range(2, -1, -1) if top <= 7 else range(3, -1, -1)):
-                out.append(rf"(?(na{i}{b})"
-                           + jump((1 << b) * 8 * 16 ** i) + "|)")
-        return "".join(out)
-
-    NADDR = naddr_cap()
-    NJUMPS = naddr_jumps()
+    N_DIGITS = N_MSD + 1
+    NADDR = "0" * (8 - N_DIGITS) + tree_cap("na", N_DIGITS, N_MSD_VAL - 1)
+    NJUMPS = tree_jumps("na", N_DIGITS, 8, N_MSD_VAL - 1)
 
     R.append(("loadi_n",
               ci(0x21, r"(?<d>[0-7])." + NADDR)
-              + rf"(?=(?>{HOP}N)" + NJUMPS + r"(?<mv>.{8}))"
+              + r"(?=" + jump(OFFS["N"] - FETCH_POS) + NJUMPS + r"(?<mv>.{8}))"
               + consume_dst(),
               R1 + "${pre}${mv}"))
     R.append(("load_n",
               ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=s)", NADDR)
-              + rf"(?=(?>{HOP}N)" + NJUMPS + r"(?<mv>.{8}))"
+              + r"(?=" + jump(OFFS["N"] - FETCH_POS) + NJUMPS + r"(?<mv>.{8}))"
               + consume_dst(),
               R1 + "${pre}${mv}"))
     R.append(("storei_n",
               ci(0x23, r"(?<d>[0-7])." + NADDR)
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
-              + rf"(?<pre>(?>{HOP}N)" + NJUMPS + r").{8}",
+              + r"(?<pre>" + jump(OFFS["N"] - FETCH_POS) + NJUMPS + r").{8}",
               R1 + "${pre}${v}"))
     R.append(("store_n",
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", NADDR)
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
-              + rf"(?<pre>(?>{HOP}N)" + NJUMPS + r").{8}",
+              + r"(?<pre>" + jump(OFFS["N"] - FETCH_POS) + NJUMPS + r").{8}",
               R1 + "${pre}${v}"))
 
-    WADDR = r"00(?<pg>[a-e].{4})(?<o>.)"
+    WADDR = (r"00(?<pg>" + tree_cap("wp", 5, msd_cls="[a-e]")
+             + r")(?<o>.)")
     R.append(("loadi_wad",
               ci(0x21, r"(?<d>[0-7])." + WADDR)
               + wad_read_branches() + consume_dst(),
@@ -556,7 +586,7 @@ def build_rules() -> list[tuple[str, str, str]]:
     # --- память #M ----------------------------------------------------------
     R.append(("loadi_hit",
               ci(0x21, r"(?<d>[0-7]).(?<imm>.{8})")
-              + rf"(?=(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=imm):(?<mv>.{{8}})\])"
+              + r"(?=" + jump(OFFS["M"] - FETCH_POS) + rf"(?:\[[^\]]*+\])*?\[(?P=imm):(?<mv>.{{8}})\])"
               + consume_dst(),
               R1 + "${pre}${mv}"))
     R.append(("loadi_miss",
@@ -565,7 +595,7 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("load_hit",
               ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=s)", r"(?<addr>.{8})")
-              + rf"(?=(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=addr):(?<mv>.{{8}})\])"
+              + r"(?=" + jump(OFFS["M"] - FETCH_POS) + rf"(?:\[[^\]]*+\])*?\[(?P=addr):(?<mv>.{{8}})\])"
               + consume_dst(),
               R1 + "${pre}${mv}"))
     R.append(("load_miss",
@@ -574,24 +604,24 @@ def build_rules() -> list[tuple[str, str, str]]:
     R.append(("storei_hit",
               ci(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
-              + rf"(?<pre>(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=imm):).{{8}}",
+              + r"(?<pre>" + jump(OFFS["M"] - FETCH_POS) + rf"(?:\[[^\]]*+\])*?\[(?P=imm):).{{8}}",
               R1 + "${pre}${v}"))
     R.append(("storei_ins",       # O(1) prepend сразу после #M (без сортировки)
               ci(0x23, r"(?<d>[0-7]).(?<imm>.{8})")
               + read_reg(r"(?P=d)", r"(?<v>.{8})")
-              + rf"(?<pre>(?>{HOP}M))",
+              + r"(?<pre>" + jump(OFFS["M"] - FETCH_POS) + r")",
               R1 + "${pre}[${imm}:${v}]"))
     R.append(("store_hit",
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"(?<addr>.{8})")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
-              + rf"(?<pre>(?>{HOP}M)(?:\[[^\]]*+\])*?\[(?P=addr):).{{8}}",
+              + r"(?<pre>" + jump(OFFS["M"] - FETCH_POS) + rf"(?:\[[^\]]*+\])*?\[(?P=addr):).{{8}}",
               R1 + "${pre}${v}"))
     R.append(("store_ins",        # O(1) prepend сразу после #M
               ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
               + read_reg(r"(?P=d)", r"(?<addr>.{8})")
               + read_reg(r"(?P=s)", r"(?<v>.{8})")
-              + rf"(?<pre>(?>{HOP}M))",
+              + r"(?<pre>" + jump(OFFS["M"] - FETCH_POS) + r")",
               R1 + "${pre}[${addr}:${v}]"))
 
     # --- переходы: взятые -> PH:2 (refetch), невзятые -> PH:1 ---------------
@@ -658,17 +688,26 @@ def build_rules() -> list[tuple[str, str, str]]:
         return "".join(rf"(?<{prefix}{i}>.)" for i in range(7, -1, -1))
 
     def chain_mixed(table: str, xs: list, ys: list, c0: str,
-                    op_: str) -> str:
-        """Цепочка #A/#S: xs[i], ys[i] — готовые regex-атомы цифр."""
+                    op_: str, mark: bool = False) -> str:
+        """Цепочка #A/#S: xs[i], ys[i] — готовые regex-атомы цифр.
+        mark=True — бинарные маркеры битов ({op_}m{i}{b}) ставятся в
+        точке захвата ВЫЧИСЛЕННОЙ цифры (позиция движка в lookahead'е
+        стоит на самой цифре) — для деревьев по вычисленным адресам."""
+        def mk(i: int) -> str:
+            if not mark:
+                return ""
+            return "".join(
+                rf"(?>(?={BITCLS[b]})(?<{op_}m{i}{b}>)|)"
+                for b in range(3, -1, -1))
         parts = [rf"(?=(?>{HOP}{table})[^#]*?:{xs[0]}{ys[0]}{c0}="
-                 rf"(?<{op_}0>.)(?<{op_}c1>.))"]
+                 + mk(0) + rf"(?<{op_}0>.)(?<{op_}c1>.))"]
         for i in range(1, 7):
             parts.append(
                 rf"(?=(?>{HOP}{table})[^#]*?:{xs[i]}{ys[i]}(?P={op_}c{i})="
-                rf"(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
+                + mk(i) + rf"(?<{op_}{i}>.)(?<{op_}c{i + 1}>.))")
         parts.append(
             rf"(?=(?>{HOP}{table})[^#]*?:{xs[7]}{ys[7]}(?P={op_}c7)="
-            rf"(?<{op_}7>.).)")
+            + mk(7) + rf"(?<{op_}7>.).)")
         return "".join(parts)
 
     def refs(prefix: str) -> list:
@@ -681,9 +720,29 @@ def build_rules() -> list[tuple[str, str, str]]:
                                     for k in range(8)) + "))")
 
     def mem_val_lookup(addr_prefix: str, out1: str, out0: str) -> str:
-        tag = "".join(rf"(?P={addr_prefix}{i})" for i in range(7, -1, -1))
-        return (rf"(?=(?>{HOP}M)(?:\[[^\]]*+\])*?\[{tag}:.{{6}}"
-                rf"(?<{out1}>.)(?<{out0}>.)\])")
+        """v2.0 Э5: значение по ВЫЧИСЛЕННОМУ адресу — из зоны #N.
+        Гейт диапазона: маркер любого бита старших цифр -> (?!) провал
+        (правило не матчит -> trap_badop, согласовано с refemu);
+        msd_val=7: значение 7 старшей значимой запрещено тройным
+        вложенным условием. Дерево — по маркерам цепочки (mark=True)."""
+        m = addr_prefix + "m"
+        gate = []
+        for i in range(7, N_MSD, -1):
+            gate += [rf"(?({m}{i}{b})(?!)|)" for b in range(3, -1, -1)]
+        if N_MSD_VAL == 7:
+            gate.append(rf"(?({m}{N_MSD}3)(?!)|)")
+            gate.append(rf"(?({m}{N_MSD}2)(?({m}{N_MSD}1)(?({m}{N_MSD}0)"
+                        r"(?!)|)|)|)")
+        elif N_MSD_VAL != 16:
+            raise AssertionError("гейт реализован для msd 7 и 16")
+        jtree = "".join(
+            rf"(?({m}{i}{b})" + jump((1 << b) * 8 * 16 ** i) + "|)"
+            for i in range(N_MSD, -1, -1) for b in (3, 2, 1, 0))
+        # позиция в fused-правиле: голова консьюмнута ДО конца R7
+        fused_pos = FETCH_POS + 8 * 12
+        return ("".join(gate)
+                + r"(?=" + jump(OFFS["N"] - fused_pos) + jtree
+                + rf"(?s:.{{6}})(?<{out1}>.)(?<{out0}>.))")
 
     def fused_rule(name: str, opcode: int, spot_part: str,
                    spot_digits: list, dest_step: int) -> tuple:
@@ -697,11 +756,13 @@ def build_rules() -> list[tuple[str, str, str]]:
                 + r"\|R7:" + cdig("u"))
         calc = (spot_part
                 # адрес texel = D + spot
-                + chain_mixed("A", refs("d"), spot_digits, "0", "e")
+                + chain_mixed("A", refs("d"), spot_digits, "0", "e",
+                              mark=True)
                 + mem_val_lookup("e", "tx1", "tx0")
                 # адрес цвета = U + texel
                 + chain_mixed("A", refs("u"),
-                              ["(?P=tx0)", "(?P=tx1)"] + ["0"] * 6, "0", "f")
+                              ["(?P=tx0)", "(?P=tx1)"] + ["0"] * 6, "0", "f",
+                              mark=True)
                 + mem_val_lookup("f", "cv1", "cv0")
                 # A += B; T += step; C -= 1
                 + chain_mixed("A", refs("a"), refs("b"), "0", "o")

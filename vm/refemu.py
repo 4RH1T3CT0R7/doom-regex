@@ -39,8 +39,16 @@ def _mem_write(m: MachState, addr: int, val: int) -> None:
 class RefEmu:
     def __init__(self, prog: list[Insn], inp: bytes = b"",
                  ram: dict[int, int] | None = None, wad: bytes = b""):
+        # v2.0 Э4: WAD-лента паддится до фиксированного окна (WAD_PAGES
+        # страниц) — зона #W тотальна для своего диапазона адресов, и
+        # чтение/запись за концом файла бит-в-бит совпадает с машиной
+        # (страницы нулей), а не уходит в #M
+        from vm.isa import WAD_PAGES, WAD_PAGE
+        cap = WAD_PAGES * WAD_PAGE
+        if len(wad) > cap:
+            raise ValueError(f"WAD больше окна: {len(wad)} > {cap}")
         self.m = MachState(prog=list(prog), inp=inp, ram=dict(ram or {}),
-                           wad=wad)
+                           wad=wad.ljust(cap, b"\0"))
 
     def step(self) -> bool:
         """Исполняет одну инструкцию. False, если машина не в run."""
@@ -134,21 +142,29 @@ class RefEmu:
             R[1] = (dividend // R[2]) & WORD_MASK if R[2] else WORD_MASK
         elif op in ("DSPAN", "DCOL"):
             # A=pos, B=step, C=n, D=src, U(7)=cmap, T(6)=dest.
-            # Контракт fused-инструкций: texel/цвет обязаны быть
-            # материализованными #M-ячейками, dest — FB-ячейкой; miss =
-            # err:BADOP (правило не матчит -> catch-all, согласовано).
+            # v2.0 Э5: texel/cmap читаются диапазонной семантикой зоны
+            # #N — ram.get(addr, 0) при addr < NRAM_TOP (плотный #N
+            # всегда даёт слот, дефолт 0), иначе err:BADOP БЕЗ
+            # обращения к ram (эквивалент #N-гейта правила; трап
+            # обязателен и для материализованной highmem-ячейки).
+            # dest — FB-ячейка; вне окна = err:BADOP (согласовано).
             if R[2] == 0:
                 pass                        # конец цикла -> next
             else:
+                from vm.isa import NRAM_TOP
                 if op == "DSPAN":
                     spot = ((R[0] >> 4) & 0xFC0) | (R[0] >> 26)
                     dstep = 1
                 else:
                     spot = (R[0] >> 16) & 127
                     dstep = 320
-                texel = m.ram.get((R[3] + spot) & WORD_MASK)
-                col = (None if texel is None
-                       else m.ram.get((R[7] + (texel & 0xFF)) & WORD_MASK))
+                ta = (R[3] + spot) & WORD_MASK
+                texel = m.ram.get(ta, 0) if ta < NRAM_TOP else None
+                if texel is None:
+                    col = None
+                else:
+                    ca = (R[7] + (texel & 0xFF)) & WORD_MASK
+                    col = m.ram.get(ca, 0) if ca < NRAM_TOP else None
                 dest_off = R[6] - FB_BASE
                 if col is None or not (0 <= dest_off < len(m.fb)):
                     m.st = "err:BADOP"

@@ -9,7 +9,8 @@ import re
 from dataclasses import dataclass, field
 
 from vm.isa import (ROM, WORD_MASK, NUM_REGS, FB_CELLS, NRAM_TOP,
-                    WAD_DATA, WAD_PAGE, Insn, hexw)
+                    PROG_SLOTS, PROG_PAD_SLOT, WAD_DATA, WAD_PAGE,
+                    Insn, hexw)
 
 
 @dataclass
@@ -39,8 +40,12 @@ def _ci(m: MachState) -> str:
 def encode(m: MachState) -> str:
     regs = "".join(f"|R{i}:{hexw(m.regs[i])}" for i in range(NUM_REGS))
     # #P — плотный массив слотов ФИКСИРОВАННОЙ ширины (23 симв):
-    # fetch прыгает к слоту суммой фикс-прыжков по цифрам PC (O(1))
-    prog = "".join(ins.encode(a) for a, ins in enumerate(m.prog))
+    # fetch прыгает к слоту суммой фикс-прыжков по цифрам PC (O(1)).
+    # v2.0 Э3: паддинг до PROG_SLOTS нефетчабельными заглушками —
+    # фикс-геометрия зоны (смещения #F/#W/#M — константы)
+    assert len(m.prog) <= PROG_SLOTS, "программа больше PROG_SLOTS"
+    prog = ("".join(ins.encode(a) for a, ins in enumerate(m.prog))
+            + PROG_PAD_SLOT * (PROG_SLOTS - len(m.prog)))
     # v2.0: адреса < NRAM_TOP живут в плотной позиционной зоне #N
     # (слот 8 hex, адрес имплицитен позицией); highmem — в #M.
     nbuf = bytearray(b"0" * (8 * NRAM_TOP))
@@ -59,13 +64,16 @@ def encode(m: MachState) -> str:
     # зона ДО #M (фиксированный размер => короткие сканы, #M растёт позади)
     fb = "".join(f"[{i:04x}:{m.fb[i]:02x}]" for i in range(len(m.fb)))
     # #W: WAD постранично [ppppp:32hex] (страница 16 байт, page=addr>>4);
-    # хвост последней страницы дополняется нулями
+    # v2.0 Э4: зона паддится до WAD_PAGES страниц — тотальная геометрия
+    # окна (дерево страниц без за-зонных прыжков), refemu паддит ленту
+    # симметрично в __init__
+    from vm.isa import WAD_PAGES
+    assert len(m.wad) <= WAD_PAGES * WAD_PAGE, "WAD больше окна #W"
+    wad = bytes(m.wad).ljust(WAD_PAGES * WAD_PAGE, bytes([0]))
     wparts = []
-    wad = bytes(m.wad)
     for i in range(0, len(wad), WAD_PAGE):
         pg = (WAD_DATA + i) >> 4
-        chunk = wad[i:i + WAD_PAGE].ljust(WAD_PAGE, bytes([0]))
-        wparts.append(f"[{pg:05x}:{chunk.hex()}]")
+        wparts.append(f"[{pg:05x}:{wad[i:i + WAD_PAGE].hex()}]")
     wz = "".join(wparts)
     # v2.0 Э2: IN/OUT в ХВОСТЕ строки — их переменная длина больше не
     # сдвигает зоны (предусловие фикс-смещений); сентинел |Z терминирует
