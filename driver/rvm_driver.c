@@ -313,8 +313,19 @@ static int splice_apply(Vm *vm, Rule *r) {
      * Эталонный pure-режим (--pure) сверяется тестами драйверов. */
     int rc = pcre2_match(r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
                          0, vm->splice_md, vm->mctx);
-    if (rc < 0)
+    if (rc < 0) {
+        /* Громкий трипваер (HONESTY): лимит-ошибки (MATCHLIMIT,
+         * DEPTHLIMIT, JIT_STACKLIMIT...) НЕ равны «не совпало» —
+         * тихая переинтерпретация меняет семантику машины. */
+        if (rc != PCRE2_ERROR_NOMATCH) {
+            PCRE2_UCHAR msg[256];
+            pcre2_get_error_message(rc, msg, sizeof msg);
+            fprintf(stderr, "rvm: правило '%s': pcre2_match ошибка %d: %s\n",
+                    r->name, rc, (char *)msg);
+            exit(4);
+        }
         return 0;
+    }
     PCRE2_SIZE *ov = pcre2_get_ovector_pointer(vm->splice_md);
     size_t mend = ov[1];
     /* рендер replacement */
@@ -379,9 +390,18 @@ static int markov_pass(Vm *vm, const char **applied) {
          * это доминирует в проходе. pcre2_match с \A-якорем отказывает
          * за O(1) без копий; substitute зовём только по факту матча.
          * Семантика подстановки не меняется (тот же паттерн). */
-        if (pcre2_match(r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
-                        0, vm->probe_md, vm->mctx) < 0)
+        int prc = pcre2_match(r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
+                              0, vm->probe_md, vm->mctx);
+        if (prc < 0) {
+            if (prc != PCRE2_ERROR_NOMATCH) {
+                PCRE2_UCHAR msg[256];
+                pcre2_get_error_message(prc, msg, sizeof msg);
+                fprintf(stderr, "rvm: правило '%s': pcre2_match ошибка "
+                        "%d: %s\n", r->name, prc, (char *)msg);
+                exit(4);
+            }
             continue;
+        }
         for (;;) {
             PCRE2_SIZE outlen = vm->scap;
             /* Без SUBSTITUTE_EXTENDED: ${n} поддержан и в базовом режиме,
@@ -690,7 +710,11 @@ int main(int argc, char **argv) {
     vm.mctx = pcre2_match_context_create(NULL);
     pcre2_set_match_limit(vm.mctx, 100000000);
     pcre2_set_depth_limit(vm.mctx, 10000000);
-    vm.jstack = pcre2_jit_stack_create(64 * 1024, 16 * 1024 * 1024, NULL);
+    /* Ленивый ячеечный скан #M кладёт JIT-фрейм на итерацию: 16МБ
+     * потолка хватало на ~350К ячеек, глубже — JIT_STACKLIMIT, который
+     * ТИХО читался как «не матч» (load_hit -> load_miss, R=0, машина
+     * уходила с траектории). Резервируем 1ГБ (коммит по мере роста). */
+    vm.jstack = pcre2_jit_stack_create(1024 * 1024, 1024u * 1024 * 1024, NULL);
     pcre2_jit_stack_assign(vm.mctx, NULL, vm.jstack);
     vm.live_dir = live_dir;
     vm.live_every = live_every;
@@ -760,9 +784,11 @@ int main(int argc, char **argv) {
         }
         if (trace_every && vm.passes % (unsigned long long)trace_every == 0) {
             double dt = now_sec() - t0;
-            fprintf(stderr, "[pass %llu | %.0f pass/s | len %zu | %s]\n",
+            /* %.44s головы — байт-копия для диагностики (PH/CI/PC),
+             * как save-final: драйвер строку не разбирает */
+            fprintf(stderr, "[pass %llu | %.0f pass/s | len %zu | %.44s | %s]\n",
                     vm.passes, dt > 0 ? (double)vm.passes / dt : 0.0,
-                    vm.len, applied);
+                    vm.len, vm.state, applied);
         }
         {
             const char *st = head_marker(&vm);
