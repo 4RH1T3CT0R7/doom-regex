@@ -8,8 +8,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from vm.isa import (ROM, WORD_MASK, NUM_REGS, FB_CELLS, WAD_DATA,
-                    WAD_PAGE, Insn, hexw)
+from vm.isa import (ROM, WORD_MASK, NUM_REGS, FB_CELLS, NRAM_TOP,
+                    WAD_DATA, WAD_PAGE, Insn, hexw)
 
 
 @dataclass
@@ -41,12 +41,20 @@ def encode(m: MachState) -> str:
     # #P — плотный массив слотов ФИКСИРОВАННОЙ ширины (23 симв):
     # fetch прыгает к слоту суммой фикс-прыжков по цифрам PC (O(1))
     prog = "".join(ins.encode(a) for a, ins in enumerate(m.prog))
+    # v2.0: адреса < NRAM_TOP живут в плотной позиционной зоне #N
+    # (слот 8 hex, адрес имплицитен позицией); highmem — в #M.
+    nbuf = bytearray(b"0" * (8 * NRAM_TOP))
+    for a, v in m.ram.items():
+        if 0 <= a < NRAM_TOP:
+            nbuf[8 * a:8 * a + 8] = f"{v & WORD_MASK:08x}".encode("ascii")
+    nz = nbuf.decode("ascii")
     # #M НЕ сортирован: правило вставки prepend'ит новую ячейку сразу после
     # #M за O(1); dict Python хранит порядок вставки => reversed воспроизводит
     # порядок машины байт-в-байт (обновления существующих ячеек порядок не
-    # меняют ни там, ни там)
+    # меняют ни там, ни там). Фильтр highmem порядок вставки сохраняет.
     ram = "".join(f"[{hexw(a)}:{hexw(v)}]"
-                  for a, v in reversed(list(m.ram.items())))
+                  for a, v in reversed(list(m.ram.items()))
+                  if not 0 <= a < NRAM_TOP)
     # FB: пре-populated ячейки [offset4:byte2] — store_fb всегда hit;
     # зона ДО #M (фиксированный размер => короткие сканы, #M растёт позади)
     fb = "".join(f"[{i:04x}:{m.fb[i]:02x}]" for i in range(len(m.fb)))
@@ -62,7 +70,7 @@ def encode(m: MachState) -> str:
     return (
         f"RVM1|ST:{m.st}|PH:{m.ph}|CI:{_ci(m)}|PC:{hexw(m.pc)}{regs}"
         f"|CLK:{hexw(m.clk)}|IN:{m.inp[m.inp_pos:].hex()}|OUT:{bytes(m.out).hex()}|"
-        f"{ROM}#P{prog}#F{fb}#W{wz}#M{ram}#E"
+        f"{ROM}#N{nz}#P{prog}#F{fb}#W{wz}#M{ram}#E"
     )
 
 

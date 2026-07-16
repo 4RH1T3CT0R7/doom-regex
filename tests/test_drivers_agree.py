@@ -30,7 +30,9 @@ from vm.asm import assemble                     # noqa: E402
 from vm.refemu import RefEmu                    # noqa: E402
 from vm.statecodec import encode                # noqa: E402
 
-RULES_RVM = ROOT / "vm" / "rules_rvm.rgxset"
+# small-профиль зон: боевой набор прыгает по боевым зонам (58.7МБ #N),
+# а тестовые состояния собраны с RVM_TEST_PROFILE=small (conftest)
+RULES_RVM = ROOT / "vm" / "rules_rvm_small.rgxset"
 
 
 @pytest.mark.parametrize("name,code,inp", [

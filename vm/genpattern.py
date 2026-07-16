@@ -468,6 +468,69 @@ def build_rules() -> list[tuple[str, str, str]]:
             + rf"(?<q{k:x}>(?>{HOP}W){SLOTW}\[(?P=pg):.{{{2 * k}}}).{{2}}"
             for k in range(16)) + ")"
 
+    # --- v2.0: плоская зона #N (адреса < NRAM_TOP, O(1) по дереву) ----------
+    # Слот 8 hex, адрес имплицитен позицией (позиция = 8*addr от 'N').
+    # Гейт диапазона и геометрия дерева выводятся из isa.NRAM_TOP:
+    # старшие цифры адреса — литерал '0', старшая значимая — класс
+    # [0-<msd-1>]. Маркеры битов ставятся при захвате цифр адреса (в CI
+    # у *i-вариантов, в Rd/Rs-lookahead у регистровых), прыжки —
+    # условные (?(qb)...) как у fetch. Всегда hit: плотный массив.
+    # Порядок в наборе: СТРОГО до #M-правил (порядок = адресный декодер).
+    from vm.isa import NRAM_TOP
+    _nh = f"{NRAM_TOP:08x}"
+    N_MSD = 7 - next(i for i, c in enumerate(_nh) if c != "0")
+    N_MSD_VAL = int(_nh[7 - N_MSD], 16)
+    if N_MSD_VAL == 1:          # NRAM_TOP = 16^k: уровень ниже, полный
+        N_MSD -= 1
+        N_MSD_VAL = 16
+
+    def naddr_cap() -> str:
+        parts = []
+        for i in range(7, -1, -1):
+            if i > N_MSD:
+                parts.append("0")
+                continue
+            top = N_MSD_VAL - 1 if i == N_MSD else 15
+            for b in (range(2, -1, -1) if top <= 7 else range(3, -1, -1)):
+                parts.append(rf"(?>(?={BITCLS[b]})(?<na{i}{b}>)|)")
+            parts.append(f"[0-{top:x}]" if top < 15 else ".")
+        return "".join(parts)
+
+    def naddr_jumps() -> str:
+        out = []
+        for i in range(N_MSD, -1, -1):
+            top = N_MSD_VAL - 1 if i == N_MSD else 15
+            for b in (range(2, -1, -1) if top <= 7 else range(3, -1, -1)):
+                out.append(rf"(?(na{i}{b})"
+                           + jump((1 << b) * 8 * 16 ** i) + "|)")
+        return "".join(out)
+
+    NADDR = naddr_cap()
+    NJUMPS = naddr_jumps()
+
+    R.append(("loadi_n",
+              ci(0x21, r"(?<d>[0-7])." + NADDR)
+              + rf"(?=(?>{HOP}N)" + NJUMPS + r"(?<mv>.{8}))"
+              + consume_dst(),
+              R1 + "${pre}${mv}"))
+    R.append(("load_n",
+              ci(0x20, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=s)", NADDR)
+              + rf"(?=(?>{HOP}N)" + NJUMPS + r"(?<mv>.{8}))"
+              + consume_dst(),
+              R1 + "${pre}${mv}"))
+    R.append(("storei_n",
+              ci(0x23, r"(?<d>[0-7])." + NADDR)
+              + read_reg(r"(?P=d)", r"(?<v>.{8})")
+              + rf"(?<pre>(?>{HOP}N)" + NJUMPS + r").{8}",
+              R1 + "${pre}${v}"))
+    R.append(("store_n",
+              ci(0x22, r"(?<d>[0-7])(?<s>[0-7]).{8}")
+              + read_reg(r"(?P=d)", NADDR)
+              + read_reg(r"(?P=s)", r"(?<v>.{8})")
+              + rf"(?<pre>(?>{HOP}N)" + NJUMPS + r").{8}",
+              R1 + "${pre}${v}"))
+
     WADDR = r"00(?<pg>[a-e].{4})(?<o>.)"
     R.append(("loadi_wad",
               ci(0x21, r"(?<d>[0-7])." + WADDR)
@@ -812,10 +875,17 @@ def render_body(rules) -> str:
 
 
 def main() -> None:
+    import os
     rules = build_rules()
     body = render_body(rules)
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    out = Path(__file__).with_name("rules_rvm.rgxset")
+    # имя файла по профилю зон: боевой rules_rvm.rgxset;
+    # RVM_TEST_PROFILE=small -> rules_rvm_small.rgxset (для тестов
+    # драйверов: боевые правила требуют боевых зон в состоянии)
+    name = ("rules_rvm_small.rgxset"
+            if os.environ.get("RVM_TEST_PROFILE", "") == "small"
+            else "rules_rvm.rgxset")
+    out = Path(__file__).with_name(name)
     out.write_bytes((f"#rgxset/1\n#sha256:{digest}\n" + body).encode("utf-8"))
     print(f"{out.name}: {len(rules)} rules, sha256={digest[:16]}…")
 

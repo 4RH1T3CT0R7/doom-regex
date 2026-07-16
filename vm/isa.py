@@ -249,3 +249,19 @@ FB_CELLS = FB_W * FB_H
 WAD_BASE = 0xA00000
 WAD_DATA = 0xA00010
 WAD_PAGE = 16
+
+# --- v2.0: плоская зона #N (design-n.md) -------------------------------------
+# Адреса [0, NRAM_TOP) живут в плотной позиционной зоне #N: слот 8 hex,
+# адрес имплицитен позицией (данные программы + zone-память Doom).
+# Highmem (стек ELVM 0xffffxx и всё вне #N/#F/#W-диапазонов) — в #M.
+# Профиль зон: боевой по умолчанию; RVM_TEST_PROFILE=small — малые зоны
+# для lockstep-сьюта (python-regex не тянет боевые фикс-прыжки).
+import os as _os
+
+TEST_PROFILE = _os.environ.get("RVM_TEST_PROFILE", "") == "small"
+if TEST_PROFILE:
+    NRAM_TOP = 0x1000         # 4096 слов, зона 32КБ
+    PROG_SLOTS = 0x1000       # паддинг #P (v2.0 этап 3)
+else:
+    NRAM_TOP = 0x700000       # 7.3М слов, зона 58.7МБ
+    PROG_SLOTS = 0x100000     # 16^5 слотов x 23 симв = 24.1МБ
