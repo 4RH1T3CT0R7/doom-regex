@@ -125,6 +125,13 @@ typedef struct {
     size_t out_seen; /* сколько hex-символов OUT уже выведено */
     size_t out_off;  /* кэш смещения "|OUT:" (v2.0: OUT в хвосте) */
     size_t prev_len;             /* длина строки до последней замены */
+    /* live-лента v2.0: окно последней замены считается из сегментов
+     * identity-skip ДО записи — полная scratch-копия mend байт на
+     * каждый проход (при store_n это 83МБ) больше не нужна */
+    size_t live_d;               /* позиция первого содержательного диффа */
+    size_t live_w0;              /* начало окна */
+    int live_blen;               /* длина сохранённого "до" */
+    char live_before[200];
     const char *live_dir;        /* live-экспорт для вьювера (fb + лента) */
     long long live_every;
     double t_start;
@@ -388,11 +395,30 @@ static int splice_apply(Vm *vm, Rule *r) {
         segs[n_segs].rb0 = seg_rb0;
         segs[n_segs++].len = rb - seg_rb0;
     }
-    /* live-дифф: старая изменяемая зона в scratch */
+    /* live-лента: окно первой содержательной записи — из сегментов,
+     * ДО их применения (старые байты ещё на месте). Заголовок (первые
+     * ~220 симв) пульсирует всегда — предпочитаем дифф за ним. */
     if (vm->live_dir) {
-        size_t keep = mend < vm->scap ? mend : vm->scap - 1;
-        memcpy(vm->scratch, vm->state, keep);
-        vm->scratch[keep] = 0;
+        size_t d = 0; int found = 0;
+        for (int pass2 = 0; pass2 < 2 && !found; pass2++) {
+            size_t lo = pass2 == 0 ? 220 : 0;
+            for (int s = 0; s < n_segs && !found; s++) {
+                size_t dst = segs[s].dst, len2 = segs[s].len;
+                for (size_t k = dst < lo ? lo - dst : 0; k < len2; k++) {
+                    if (dst + k >= mend
+                        || vm->state[dst + k] != vm->rbuf[segs[s].rb0 + k]) {
+                        d = dst + k; found = 1; break;
+                    }
+                }
+            }
+        }
+        vm->live_d = d;
+        vm->live_w0 = d > 60 ? d - 60 : 0;
+        size_t bl = 156;
+        if (vm->live_w0 + bl > vm->len) bl = vm->len - vm->live_w0;
+        if (bl > sizeof vm->live_before) bl = sizeof vm->live_before;
+        memcpy(vm->live_before, vm->state + vm->live_w0, bl);
+        vm->live_blen = (int)bl;
         vm->prev_len = vm->len;
     }
     if (out != mend) {
@@ -522,21 +548,13 @@ static void write_live(Vm *vm, const char *rule) {
     if (snprintf(path, sizeof path, "%s/fb.rvfb", vm->live_dir)
             < (int)sizeof path)
         export_fb(vm, path);
-    /* лента: окно вокруг первого содержательного расхождения строк
-     * (старая строка после swap лежит в scratch) */
-    size_t n = vm->len < vm->prev_len ? vm->len : vm->prev_len;
-    size_t skip = 220;                     /* заголовок пульсирует всегда */
-    size_t d = skip;
-    const char *a = vm->scratch, *b = vm->state;
-    while (d < n && a[d] == b[d]) d++;
-    if (d >= n) {                          /* менялся только заголовок */
-        d = 0;
-        while (d < n && a[d] == b[d]) d++;
-        if (d >= n) d = 0;
-    }
-    size_t w0 = d > 60 ? d - 60 : 0;
+    /* лента: окно последней замены вычислено в splice_apply из
+     * сегментов identity-skip (старые байты — в live_before) */
+    size_t d = vm->live_d;
+    size_t w0 = vm->live_w0;
     size_t wend_b = d + 96; if (wend_b > vm->len) wend_b = vm->len;
-    size_t wend_a = d + 96; /* по старой строке */
+    size_t wend_a = w0 + (size_t)vm->live_blen;
+    if (wend_a > d + 96) wend_a = d + 96;
     double el = now_sec() - vm->t_start;
     if (snprintf(path, sizeof path, "%s/live.json", vm->live_dir)
             >= (int)sizeof path) return;
@@ -549,7 +567,7 @@ static void write_live(Vm *vm, const char *rule) {
             rule ? rule : "", d);
     fprintf(f, "\"head\": \"%.120s\", ", vm->state);
     fprintf(f, "\"before\": \"%.*s\", ",
-            (int)(wend_a > w0 ? wend_a - w0 : 0), vm->scratch + w0);
+            (int)(wend_a > w0 ? wend_a - w0 : 0), vm->live_before);
     fprintf(f, "\"after\": \"%.*s\", \"w0\": %zu}",
             (int)(wend_b > w0 ? wend_b - w0 : 0), vm->state + w0, w0);
     fclose(f);
