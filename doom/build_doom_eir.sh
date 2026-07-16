@@ -22,6 +22,11 @@ CFLAGS=(-S -D__eir__ '-DINT_MIN=(-2147483647-1)' -DSHRT_MAX=32767 -DEISDIR=21
 if [ "$MODE" = "timedemo" ]; then
   CFLAGS+=(-DRVM_WARP -DRVM_FB_FRAME=60)
 fi
+if [ "$MODE" = "clip" ]; then
+  # G2e: снапшот-маркер перед кадром 60, '' после каждого кадра
+  # 60..159 (100 кадров), exit после
+  CFLAGS+=(-DRVM_WARP -DRVM_FB_CLIP=60 -DRVM_FB_CLIP_TO=159)
+fi
 
 SOURCES=(dummy am_map doomdef doomstat dstrings d_event d_items d_iwad d_loop
   d_main d_mode d_net f_finale f_wipe g_game hu_lib hu_stuff info i_cdmus

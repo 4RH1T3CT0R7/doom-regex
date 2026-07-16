@@ -134,6 +134,8 @@ typedef struct {
     char live_before[200];
     const char *live_dir;        /* live-экспорт для вьювера (fb + лента) */
     long long live_every;
+    const char *fbseq_dir;       /* G2e: экспорт #F по байту  в OUT */
+    int fbseq;
     double t_start;
 } Vm;
 
@@ -688,7 +690,15 @@ static void echo_out(Vm *vm) {
     if (hexlen <= vm->out_seen) return;
     for (size_t i = vm->out_seen; i + 1 < hexlen; i += 2) {
         unsigned v;
-        if (sscanf(p + i, "%2x", &v) == 1) fputc((int)v, stdout);
+        if (sscanf(p + i, "%2x", &v) != 1) continue;
+        fputc((int)v, stdout);
+        if (v == 12 && vm->fbseq_dir) {
+            /* G2e: form feed от машины = «кадр готов» -> копия #F */
+            char fp[1024];
+            if (snprintf(fp, sizeof fp, "%s/frame_%05d.rvfb",
+                         vm->fbseq_dir, vm->fbseq++) < (int)sizeof fp)
+                export_fb(vm, fp);
+        }
     }
     fflush(stdout);
     vm->out_seen = hexlen;
@@ -747,6 +757,7 @@ int main(int argc, char **argv) {
     long long trace_every = 0, fb_every = 0, io_every = 64;
     int quiet = 0;
     const char *live_dir = NULL;
+    const char *vm_fbseq_dir = NULL;
     long long live_every = 25;
     long long save_every = 0;      /* чекпоинт состояния каждые N проходов */
     int pure = 0;
@@ -772,6 +783,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--pure")) pure = 1;
         else if (!strcmp(argv[i], "--rule-stats")) g_rule_stats = 1;
         else if (!strcmp(argv[i], "--live-dir") && i + 1 < argc) live_dir = argv[++i];
+        else if (!strcmp(argv[i], "--fb-seq-dir") && i + 1 < argc)
+            vm_fbseq_dir = argv[++i];
         else if (!strcmp(argv[i], "--live-every") && i + 1 < argc) live_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
         else { fprintf(stderr, "rvm: неизвестный аргумент %s\n", argv[i]); return 2; }
@@ -792,6 +805,7 @@ int main(int argc, char **argv) {
     pcre2_jit_stack_assign(vm.mctx, NULL, vm.jstack);
     vm.live_dir = live_dir;
     vm.live_every = live_every;
+    vm.fbseq_dir = vm_fbseq_dir;
     vm.t_start = now_sec();
     vm.probe_md = pcre2_match_data_create(64, NULL);
     if (!vm.probe_md) die("oom probe_md");

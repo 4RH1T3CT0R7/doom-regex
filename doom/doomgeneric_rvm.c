@@ -66,6 +66,22 @@ void DG_DrawFrame() {
       exit(0);
   }
 #endif
+#ifdef RVM_FB_CLIP
+  /* G2e-клип: FB_BEGIN на кадре FROM-1 (точка снапшота), затем после
+   * КАЖДОГО кадра диапазона — байт '\f' (0x0C) в OUT: драйвер по нему
+   * экспортирует #F (кадр уже в видеозоне: рендер VRAM-директ, копия
+   * выше скипается). exit после RVM_FB_CLIP_TO кадров. */
+  {
+    static int fc = 0;
+    fc++;
+    if (fc == RVM_FB_CLIP - 1)
+      printf("FB_BEGIN:");
+    if (fc >= RVM_FB_CLIP)
+      putchar(12);
+    if (fc == RVM_FB_CLIP_TO)
+      exit(0);
+  }
+#endif
 #ifdef RVM_FRAME_CHECKSUM
   {
     int s1 = 0, s2 = 0;
