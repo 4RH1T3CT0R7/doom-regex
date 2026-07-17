@@ -79,6 +79,15 @@ void DG_DrawFrame() {
       exit(0);
   }
 #endif
+#ifdef RVM_FB_MARK
+  /* G2f: снапшот-маркер после кадра N, БЕЗ останова — интерактив */
+  {
+    static int fc = 0;
+    fc++;
+    if (fc == RVM_FB_MARK)
+      printf("FB_BEGIN:");
+  }
+#endif
 #ifdef RVM_FB_CLIP
   /* G2e-клип: FB_BEGIN на кадре FROM-1 (точка снапшота), затем после
    * КАЖДОГО кадра диапазона — байт '\f' (0x0C) в OUT: драйвер по нему

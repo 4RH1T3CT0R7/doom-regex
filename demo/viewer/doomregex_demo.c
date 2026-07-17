@@ -215,7 +215,8 @@ static void paint(HWND w) {
 
     y += 30;
     SetTextColor(mem, RGB(0x55, 0x49, 0x3f));
-    const char *foot = "DOOM computed by find&replace \xC2\xB7 196 rules \xC2\xB7 PCRE2 \xC2\xB7 honest Markov machine";
+    const char *foot = "DOOM computed by find&replace \xC2\xB7 544 rules \xC2\xB7 PCRE2 \xC2\xB7 "
+                       "WASD+arrows/Ctrl/Space \xC2\xB7 honest Markov machine";
     TextOutA(mem, 16, y, foot, (int)strlen(foot));
 
     BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
@@ -224,8 +225,50 @@ static void paint(HWND w) {
     EndPaint(w, &ps);
 }
 
+/* --- G2f: клавиатура -> input.bin (машина читает через GETC) -----------
+ * Протокол DG_GetKey: байт 0x81 (нажата) / 0x80 (отпущена), затем байт
+ * doom-клавиши. Драйвер вливает байты файла в |IN: как hex (FIFO). */
+static unsigned char vk_to_doom(WPARAM vk) {
+    switch (vk) {
+    case VK_UP:    case 'W': return 0xad;   /* KEY_UPARROW    */
+    case VK_DOWN:  case 'S': return 0xaf;   /* KEY_DOWNARROW  */
+    case VK_LEFT:            return 0xac;   /* KEY_LEFTARROW  */
+    case VK_RIGHT:           return 0xae;   /* KEY_RIGHTARROW */
+    case 'A':                return 0xa0;   /* KEY_STRAFE_L   */
+    case 'D':                return 0xa1;   /* KEY_STRAFE_R   */
+    case VK_CONTROL:         return 0xa3;   /* KEY_FIRE       */
+    case VK_SPACE:           return 0xa2;   /* KEY_USE        */
+    case VK_SHIFT:           return 0x80 + 0x36; /* KEY_RSHIFT: бег */
+    case VK_RETURN:          return 13;
+    case VK_ESCAPE:          return 27;
+    case 'Y':                return 'y';
+    default:                 return 0;
+    }
+}
+
+static void send_key(int pressed, unsigned char key) {
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%s\\input.bin", g_dir);
+    FILE *f = fopen(path, "ab");
+    if (!f) return;
+    unsigned char ev[2] = { (unsigned char)(pressed ? 0x81 : 0x80), key };
+    fwrite(ev, 1, 2, f);
+    fclose(f);
+}
+
 static LRESULT CALLBACK wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     switch (m) {
+    case WM_KEYDOWN:
+        if (!(lp & 0x40000000)) {            /* без автоповтора */
+            unsigned char k = vk_to_doom(wp);
+            if (k) send_key(1, k);
+        }
+        return 0;
+    case WM_KEYUP: {
+        unsigned char k = vk_to_doom(wp);
+        if (k) send_key(0, k);
+        return 0;
+    }
     case WM_TIMER:
         poll_fb();
         poll_live();
@@ -255,13 +298,20 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmd, int show) {
     snprintf(live, sizeof live, "%s\\live", g_dir);
     CreateDirectoryA(live, NULL);
 
+    /* пустой входной файл клавиш (машина поллит его через GETC) */
+    char inp[MAX_PATH];
+    snprintf(inp, sizeof inp, "%s\\input.bin", g_dir);
+    FILE *fi = fopen(inp, "wb");
+    if (fi) fclose(fi);
+
     /* запуск машины: rvm.exe рядом с exe */
     char eng[2048];
     snprintf(eng, sizeof eng,
              "\"%s\\rvm.exe\" --rules \"%s\\rules_rvm.rgxset\" "
              "--state \"%s\\snapshot.rvstate\" --live-dir \"%s\" "
-             "--live-every 15 --quiet",
-             g_dir, g_dir, g_dir, live);
+             "--live-every 15 --input-file \"%s\" --io-every 2000 "
+             "--io-journal \"%s\\input.journal\" --quiet",
+             g_dir, g_dir, g_dir, live, inp, g_dir);
     STARTUPINFOA si = { sizeof si };
     if (!CreateProcessA(NULL, eng, NULL, NULL, FALSE,
                         CREATE_NO_WINDOW, NULL, g_dir, &si, &g_engine)) {
