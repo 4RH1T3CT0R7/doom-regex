@@ -16,7 +16,7 @@ green stroke is a regex replacing a few characters inside a 96.6 MB string:
 
 <p align="center">
   <a href="https://4rh1t3ct0r7.github.io/doom-regex/">
-    <img src="docs/render_timelapse.gif" width="640" alt="the machine painting a frame, writes highlighted in green"><br>
+    <img src="docs/paint_timelapse.gif" width="640" alt="the machine painting a frame, writes highlighted in green"><br>
     <img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site%20-%20watch%20the%20machine%20think-c23b22?style=for-the-badge" alt="Open the interactive site">
   </a>
 </p>
