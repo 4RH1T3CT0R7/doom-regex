@@ -22,10 +22,14 @@ CFLAGS=(-S -D__eir__ '-DINT_MIN=(-2147483647-1)' -DSHRT_MAX=32767 -DEISDIR=21
 if [ "$MODE" = "timedemo" ]; then
   CFLAGS+=(-DRVM_WARP -DRVM_FB_FRAME=60)
 fi
+if [ "$MODE" = "scout" ]; then
+  # разведка окна клипа на tier-1: дамп каждого 20-го кадра до 500
+  CFLAGS+=(-DRVM_TIMEDEMO -DRVM_DUMP_EVERY=20 -DRVM_DUMP_LAST=500)
+fi
 if [ "$MODE" = "clip" ]; then
   # G2e: снапшот-маркер перед кадром 60, '' после каждого кадра
   # 60..159 (100 кадров), exit после
-  CFLAGS+=(-DRVM_WARP -DRVM_FB_CLIP=60 -DRVM_FB_CLIP_TO=159)
+  CFLAGS+=(-DRVM_TIMEDEMO -DRVM_FB_CLIP=160 -DRVM_FB_CLIP_TO=259)
 fi
 
 SOURCES=(dummy am_map doomdef doomstat dstrings d_event d_items d_iwad d_loop

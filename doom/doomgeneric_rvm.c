@@ -66,6 +66,19 @@ void DG_DrawFrame() {
       exit(0);
   }
 #endif
+#ifdef RVM_DUMP_EVERY
+  /* разведка (tier-1 native): дамп каждого K-го кадра до RVM_DUMP_LAST */
+  {
+    static int fc = 0;
+    fc++;
+    if (fc % RVM_DUMP_EVERY == 0) {
+      printf("DUMP%05d:", fc);
+      for (i = 0; i < RVM_FB_PIXELS; i++) putchar(src[i]);
+    }
+    if (fc >= RVM_DUMP_LAST)
+      exit(0);
+  }
+#endif
 #ifdef RVM_FB_CLIP
   /* G2e-клип: FB_BEGIN на кадре FROM-1 (точка снапшота), затем после
    * КАЖДОГО кадра диапазона — байт '\f' (0x0C) в OUT: драйвер по нему

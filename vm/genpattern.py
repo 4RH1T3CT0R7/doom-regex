@@ -752,7 +752,12 @@ def build_rules() -> list[tuple[str, str, str]]:
                 + r"\|R2:" + NONZERO8 + cdig("c")
                 + r"\|R3:" + cdig("d")
                 + r"\|R4:(?<r4>.{8})\|R5:(?<r5>.{8})"
-                + r"\|R6:" + cdig("t")
+                + r"\|R6:(?<t7>0)(?<t6>0)(?<t5>f)(?<t4>0)"
+                + "".join(
+                    "".join(rf"(?>(?={BITCLS[b]})(?<tm{i}{b}>)|)"
+                            for b in (3, 2, 1, 0))
+                    + rf"(?<t{i}>.)"
+                    for i in range(3, -1, -1))
                 + r"\|R7:" + cdig("u"))
         calc = (spot_part
                 # адрес texel = D + spot
@@ -768,8 +773,12 @@ def build_rules() -> list[tuple[str, str, str]]:
                 + chain_mixed("A", refs("a"), refs("b"), "0", "o")
                 + chain_mixed("A", refs("t"), lits(dest_step), "0", "v")
                 + chain_mixed("S", refs("c"), lits(1), "0", "w"))
-        mid = (rf"(?<mid>(?>{HOP}F)(?:\[[^\]]*+\])*?"
-               rf"\[(?P=t3)(?P=t2)(?P=t1)(?P=t0):).{{2}}")
+        # позиция после консьюма R7-блока = FETCH_POS + 8*12
+        mid = (r"(?<mid>" + jump(OFFS["F"] - (FETCH_POS + 8 * 12))
+               + "".join(rf"(?(tm{i}{b})"
+                         + jump((1 << b) * 9 * 16 ** i) + "|)"
+                         for i in range(3, -1, -1) for b in (3, 2, 1, 0))
+               + rf"\[(?P=t3)(?P=t2)(?P=t1)(?P=t0):).{{2}}")
         repl = ("RVM1|ST:run|PH:0|CI:${ci}|PC:${pc}"
                 + "|R0:" + outg("o")
                 + "|R1:" + outg("b")

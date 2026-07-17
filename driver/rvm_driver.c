@@ -136,6 +136,7 @@ typedef struct {
     long long live_every;
     const char *fbseq_dir;       /* G2e: экспорт #F по байту  в OUT */
     int fbseq;
+    int fbseq_stop;              /* сегмент клипа: стоп после N кадров */
     double t_start;
 } Vm;
 
@@ -698,6 +699,12 @@ static void echo_out(Vm *vm) {
             if (snprintf(fp, sizeof fp, "%s/frame_%05d.rvfb",
                          vm->fbseq_dir, vm->fbseq++) < (int)sizeof fp)
                 export_fb(vm, fp);
+            if (vm->fbseq_stop && vm->fbseq >= vm->fbseq_stop) {
+                /* лимит наблюдателя (как max-passes): сегмент готов */
+                fprintf(stderr, "\n-- fb-seq-stop | %d кадров | %llu "
+                        "passes\n", vm->fbseq, vm->passes);
+                exit(0);
+            }
         }
     }
     fflush(stdout);
@@ -758,6 +765,7 @@ int main(int argc, char **argv) {
     int quiet = 0;
     const char *live_dir = NULL;
     const char *vm_fbseq_dir = NULL;
+    int vm_fbseq_stop = 0;
     long long live_every = 25;
     long long save_every = 0;      /* чекпоинт состояния каждые N проходов */
     int pure = 0;
@@ -785,6 +793,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--live-dir") && i + 1 < argc) live_dir = argv[++i];
         else if (!strcmp(argv[i], "--fb-seq-dir") && i + 1 < argc)
             vm_fbseq_dir = argv[++i];
+        else if (!strcmp(argv[i], "--fb-seq-stop") && i + 1 < argc)
+            vm_fbseq_stop = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--live-every") && i + 1 < argc) live_every = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) quiet = 1;
         else { fprintf(stderr, "rvm: неизвестный аргумент %s\n", argv[i]); return 2; }
@@ -806,6 +816,7 @@ int main(int argc, char **argv) {
     vm.live_dir = live_dir;
     vm.live_every = live_every;
     vm.fbseq_dir = vm_fbseq_dir;
+    vm.fbseq_stop = vm_fbseq_stop;
     vm.t_start = now_sec();
     vm.probe_md = pcre2_match_data_create(64, NULL);
     if (!vm.probe_md) die("oom probe_md");
