@@ -74,7 +74,7 @@ It would be easy to hide computation in the driver, so the contract is strict:
   every single substitution**. The rendered frames match natively compiled
   DOOM. Three independent oracles, one answer.
 
-When a limit error ever comes back from the regex engine (backtracking
+If a limit error ever comes back from the regex engine (backtracking
 budget, JIT stack), the driver halts loudly rather than reinterpreting it as
 "no match" - that distinction once cost us a night of debugging a frame that
 ended cleanly in the wrong place.
@@ -87,10 +87,10 @@ ended cleanly in the wrong place.
 | machine state | one string, 96.6 MB |
 | one frame of E1M1 | 13 994 067 substitutions |
 | the 100-frame clip | ~1.25 billion substitutions |
-| speed | ~25 000 substitutions/s (PCRE2 with JIT, one core) |
-| first working build | 7 substitutions/s - the frame took 12 hours |
+| speed | ~80 000 substitutions/s per core (PCRE2 with JIT, measured across the clip run) |
+| first working build | 7 substitutions/s - the last 295 k substitutions of the frame alone took 12 hours |
 
-The 3500x between the first and the last row is its own story: digit-tree
+The four orders of magnitude between the first and the last row is its own story: digit-tree
 fetch instead of scanning the program zone, dotall jumps so the JIT advances
 a pointer instead of scanning for newlines, a flat memory zone instead of a
 sparse cell scan, and an identity-skip splice so an 80 MB prefix that a
@@ -102,7 +102,7 @@ substitution keeps verbatim is never copied at all.
 unzip, double-click `doomregex_demo.exe` (Windows). It launches the real
 machine on the real ruleset and shows the frame being rendered live, along
 with the substitution feed: which rule fired, what it consumed, what it
-wrote. A frame takes about half an hour of watching the machine paint.
+wrote. A frame takes a few minutes of watching the machine paint.
 
 Or build everything yourself:
 
