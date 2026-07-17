@@ -14,12 +14,16 @@ substitutions are writing: walls go down column by column, floors span by
 span, and the pauses are the BSP traversal thinking between strokes. Every
 green stroke is a regex replacing a few characters inside a 96.6 MB string:
 
-![The machine painting a frame - green marks the pixels the substitutions are writing right now](docs/paint_timelapse.gif)
+<p align="center">
+  <img src="docs/paint_timelapse.gif" width="640" alt="The machine painting a frame - green marks the pixels the substitutions are writing right now">
+</p>
+
+<br>
 
 <p align="center">
-  <a href="https://4rh1t3ct0r7.github.io/doom-regex/">
-    <img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site%20-%20watch%20the%20machine%20think-c23b22?style=for-the-badge" alt="Open the interactive site">
-  </a>
+  <a href="https://github.com/4RH1T3CT0R7/doom-regex/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20%20DOWNLOAD%20THE%20DEMO-2ea043?style=for-the-badge&logoColor=white" alt="Download the demo"></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://4rh1t3ct0r7.github.io/doom-regex/"><img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site-c23b22?style=for-the-badge" alt="Open the interactive site"></a>
 </p>
 
 One frame of E1M1 takes **13 994 067 substitutions** and comes out
