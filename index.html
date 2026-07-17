@@ -15,11 +15,11 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 17px/1.65 Georgia, "Times New Roman", serif;
+    font: 16.5px/1.7 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
   a { color: var(--red2); }
-  h1, h2 { font-family: Verdana, Geneva, sans-serif; letter-spacing: -0.5px; }
+  h1, h2 { font-family: inherit; font-weight: 750; letter-spacing: -0.6px; }
   h1 { font-size: clamp(28px, 5vw, 46px); margin: 0.3em 0; }
   h2 { font-size: 24px; margin: 2.2em 0 0.6em; color: var(--amber); }
   .mono, code, pre, textarea { font-family: var(--mono); }
@@ -45,7 +45,7 @@
   .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 26px 0 8px; }
   .btn {
     display: inline-block; padding: 12px 22px; border-radius: 8px;
-    text-decoration: none; font-family: Verdana, sans-serif; font-size: 15px;
+    text-decoration: none; font-weight: 600; font-size: 15px;
     border: 1px solid var(--line); color: var(--fg); background: var(--panel);
   }
   .btn.primary { background: var(--red); border-color: var(--red2); color: #fff; }
@@ -53,7 +53,7 @@
 
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 26px 0; }
   .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
-  .stat b { display: block; font-size: 26px; font-family: Verdana, sans-serif; color: var(--red2); }
+  .stat b { display: block; font-size: 26px; font-weight: 750; color: var(--red2); }
   .stat span { font-size: 14px; color: var(--dim); }
 
   video { width: 100%; border-radius: 8px; border: 1px solid var(--line); }
@@ -188,14 +188,6 @@
   <p data-i="p_tl"></p>
   <div class="tl"><img src="e1m1_frame.png" alt="the finished frame"></div>
 
-  <h2 data-i="h_honest"></h2>
-  <p data-i="p_honest1"></p>
-  <ul>
-    <li data-i="li_h1"></li>
-    <li data-i="li_h2"></li>
-    <li data-i="li_h3"></li>
-  </ul>
-
   <footer>
     <span data-i="footer"></span> |
     <a href="https://github.com/4RH1T3CT0R7/doom-regex">github.com/4RH1T3CT0R7/doom-regex</a>
@@ -248,11 +240,6 @@ const I18N = {
     toy_halted: "no rule matches - fixed point",
     h_tl: "The finished frame",
     p_tl: "13 994 067 substitutions later: frame 60 of the timedemo, SHA-256 byte-identical to natively compiled DOOM. Not a single character of it was produced by anything other than find-and-replace.",
-    h_honest: "The honesty rules",
-    p_honest1: "It's easy to cheat at this kind of project by hiding computation in the driver. The contract here is strict:",
-    li_h1: "The driver only applies substitutions, copies I/O bytes, and checks two literal stop markers. It never parses the state, never does arithmetic on it.",
-    li_h2: "The ruleset is fixed and SHA-256-hashed before the run; the driver refuses a modified file.",
-    li_h3: "Every performance trick (in-place splice, skipping unchanged bytes) has a slow reference mode that must produce byte-identical states - and the test suite enforces it.",
     footer: "Built with PCRE2 | verified against a reference emulator and native DOOM",
     // microscope rule explanations
     ex_movi: "MOVI: the rule matched opcode 02 in the instruction cache, captured the destination register's slot by a backreference on its name, and wrote the immediate value into it. Phase moves to 1 (increment PC).",
@@ -307,11 +294,6 @@ const I18N = {
     toy_halted: "ни одно правило не совпадает - неподвижная точка",
     h_tl: "Готовый кадр",
     p_tl: "13 994 067 подстановок спустя: кадр 60 таймдемо, SHA-256 байт в байт с нативно скомпилированным DOOM. Ни один символ этого кадра не был получен ничем, кроме поиска с заменой.",
-    h_honest: "Правила честности",
-    p_honest1: "В таком проекте легко сжульничать, спрятав вычисления в драйвер. Здесь контракт жёсткий:",
-    li_h1: "Драйвер только применяет подстановки, копирует байты ввода-вывода и проверяет два литеральных маркера останова. Он никогда не разбирает состояние и не считает по нему ничего.",
-    li_h2: "Набор правил фиксируется и хешируется SHA-256 до запуска; изменённый файл драйвер не примет.",
-    li_h3: "У каждой оптимизации (замена на месте, пропуск неизменённых байтов) есть медленный эталонный режим, обязанный давать байт-идентичные состояния - это проверяется тестами.",
     footer: "Собрано на PCRE2 | сверено с референс-эмулятором и нативным DOOM",
     ex_movi: "MOVI: правило совпало с опкодом 02 в кэше инструкции, нашло слот регистра-приёмника обратной ссылкой на его имя и записало туда непосредственное значение. Фаза переходит в 1 (инкремент PC).",
     ex_pcinc: "Инкремент PC: последняя цифра PC ищется в таблице цифр #D - lookahead находит символ, стоящий сразу после неё, это и есть цифра плюс один. Никакой арифметики, только таблица.",
@@ -324,7 +306,7 @@ const I18N = {
     ex_generic: "Одна подстановка: срабатывает первое по порядку правило, которое совпало.",
   }
 };
-let LANG = (navigator.language || "en").startsWith("ru") ? "ru" : "en";
+let LANG = "en";
 
 function setLang(l) {
   LANG = l;
