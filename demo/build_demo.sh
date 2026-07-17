@@ -28,6 +28,9 @@ cp "$OUT/build/rvm.exe" "$DIST/"
 cp "$REPO/vm/rules_rvm.rgxset" "$DIST/"
 [ -f "$SNAP" ] && cp "$SNAP" "$DIST/snapshot.rvstate" \
     || echo "ВНИМАНИЕ: снапшот не найден ($SNAP) - положи snapshot.rvstate руками"
+# второй режим демо: наблюдение рендера одного кадра до фикс-точки
+FRAME_SNAP="${2:-$OUT/run/g2d_v20_snapshot.rvstate}"
+[ -f "$FRAME_SNAP" ] && cp "$FRAME_SNAP" "$DIST/snapshot_frame.rvstate" || echo "нет снапшота кадра"
 
 cat > "$DIST/README.txt" <<'EOF'
 DOOM, посчитанный заменой текста
