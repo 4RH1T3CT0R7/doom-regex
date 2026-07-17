@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🔤</text></svg>">
-<title>DOOM on regex — find &amp; replace as a computer</title>
+<title>DOOM on regex - find &amp; replace as a computer</title>
 <style>
   :root {
     --bg: #0d0b0a; --panel: #171310; --panel2: #1f1a15;
@@ -208,7 +208,7 @@
 const I18N = {
   en: {
     tagline: "one operation: global find & replace",
-    title: "DOOM, computed by find‑and‑replace",
+    title: "DOOM, computed by find-and-replace",
     subtitle: "A computer whose only instruction is a regex substitution, applied over and over to one long string. It runs DOOM.",
     shot_cap: "The machine painting E1M1. Green pixels are the ones the current substitutions are writing.",
     btn_gh: "Source on GitHub",
@@ -438,7 +438,7 @@ function anatTip(i) {
 const TOY_INIT = "TOY|ST:run|CNT:0097|#D0123456789";
 const TOY_RULES = [
   ["inc", /^(TOY\|ST:run\|CNT:\d*)(\d)(?=9*\|)(?![9]\d*\|)(?<tail>9*)\|(?=.*#D\d*?\2(?<next>\d))/,
-   null],  // заполняется ниже — JS не даёт \2 в lookahead легко, делаем проще
+   null],  // заполняется ниже - JS не даёт \2 в lookahead легко, делаем проще
 ];
 // три правила, как в большой машине: лестница инкремента
 const TOY = [
@@ -492,7 +492,7 @@ function toyStep() {
 function toyRules() {
   const keys = ["toy_r1", "toy_r2", "toy_r3"];
   document.getElementById("toy-rules").textContent =
-    TOY.map((r, i) => "# " + r.name + " — " + I18N[LANG][keys[i]] + "\n" + r.show)
+    TOY.map((r, i) => "# " + r.name + " - " + I18N[LANG][keys[i]] + "\n" + r.show)
        .join("\n\n");
 }
 
