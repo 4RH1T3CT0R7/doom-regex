@@ -20,10 +20,10 @@
 
 #define FB_W 320
 #define FB_H 200
-#define SCALE 2
 #define PANEL_H 240
-#define WIN_W (FB_W * SCALE + 32)
-#define WIN_H (FB_H * SCALE + PANEL_H + 48)
+static int g_scale = 2;                       /* клавиши 1..3 */
+#define WIN_W (FB_W * g_scale + 32)
+#define WIN_H (FB_H * g_scale + PANEL_H + 48)
 
 static unsigned char g_frame[FB_W * FB_H];
 static unsigned int g_pix[FB_W * FB_H];      /* BGRA для StretchDIBits */
@@ -37,7 +37,42 @@ static unsigned long long g_len = 0;
 static long long g_pos = -1;
 static int g_alive = 0;
 static char g_dir[MAX_PATH];
+static char g_lastkey[32] = "";
 static PROCESS_INFORMATION g_engine;
+
+static void save_screenshot(void) {
+    /* кадр как 8bpp BMP с палитрой PLAYPAL */
+    static int n = 0;
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%s\\shot_%03d.bmp", g_dir, n++);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    int data = FB_W * FB_H;
+    int off = 14 + 40 + 256 * 4;
+    unsigned char fh[14] = {'B','M'};
+    *(int*)(fh+2) = off + data; *(int*)(fh+10) = off;
+    fwrite(fh, 1, 14, f);
+    unsigned char ih[40] = {40};
+    *(int*)(ih+4) = FB_W; *(int*)(ih+8) = -FB_H;
+    *(short*)(ih+12) = 1; *(short*)(ih+14) = 8;
+    fwrite(ih, 1, 40, f);
+    for (int i = 0; i < 256; i++) {
+        unsigned char q[4] = {PAL[i*3+2], PAL[i*3+1], PAL[i*3], 0};
+        fwrite(q, 1, 4, f);
+    }
+    fwrite(g_frame, 1, data, f);
+    fclose(f);
+    snprintf(g_lastkey, sizeof g_lastkey, "saved shot_%03d.bmp", n - 1);
+}
+
+static void apply_scale(HWND w, int s) {
+    g_scale = s;
+    RECT need = {0, 0, WIN_W, WIN_H};
+    AdjustWindowRect(&need, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME, FALSE);
+    SetWindowPos(w, NULL, 0, 0, need.right - need.left,
+                 need.bottom - need.top, SWP_NOMOVE | SWP_NOZORDER);
+    InvalidateRect(w, NULL, TRUE);
+}
 
 /* --- разбор live-файлов -------------------------------------------------- */
 
@@ -174,20 +209,18 @@ static void paint(HWND w) {
     bi.bmiHeader.biPlanes = 1;
     bi.bmiHeader.biBitCount = 32;
     bi.bmiHeader.biCompression = BI_RGB;
-    StretchDIBits(mem, 16, 16, FB_W * SCALE, FB_H * SCALE,
+    StretchDIBits(mem, 16, 16, FB_W * g_scale, FB_H * g_scale,
                   0, 0, FB_W, FB_H, g_pix, &bi, DIB_RGB_COLORS, SRCCOPY);
 
     SelectObject(mem, g_fnt);
     SetBkMode(mem, TRANSPARENT);
 
-    int y = FB_H * SCALE + 24;
+    int y = FB_H * g_scale + 24;
     char line[512];
 
     /* телеметрия */
     SetTextColor(mem, g_alive ? C_GREEN : C_DIM);
-    TextOutA(mem, 16, y, g_alive ? "\xE2\x97\x8F \xD0\xBC\xD0\xB0\xD1\x88\xD0\xB8\xD0\xBD\xD0\xB0 \xD1\x80\xD0\xB0\xD0\xB1\xD0\xBE\xD1\x82\xD0\xB0\xD0\xB5\xD1\x82"
-                        : "\xE2\x97\x8B \xD0\xBE\xD0\xB6\xD0\xB8\xD0\xB4\xD0\xB0\xD0\xBD\xD0\xB8\xD0\xB5",
-             g_alive ? 17 : 10);
+    TextOutA(mem, 16, y, g_alive ? "RUNNING" : "WAITING", 7);
     snprintf(line, sizeof line,
              "pass %llu   |   %.1f pass/s   |   len %llu",
              g_pass, g_pps, g_len);
@@ -204,19 +237,23 @@ static void paint(HWND w) {
 
     /* дифф */
     y += 28;
-    diff_line(mem, 16, y, "\xD0\xB4\xD0\xBE   \xE2\x94\x82", g_before, g_pos, C_DEL);
+    diff_line(mem, 16, y, "before|", g_before, g_pos, C_DEL);
     y += 22;
-    diff_line(mem, 16, y, "\xD0\xBF\xD0\xBE\xD1\x81\xD0\xBB\xD0\xB5\xE2\x94\x82", g_after, g_pos, C_GREEN);
+    diff_line(mem, 16, y, "after |", g_after, g_pos, C_GREEN);
 
     /* заголовок состояния */
     y += 30;
     SetTextColor(mem, C_DIM);
     TextOutA(mem, 16, y, g_head, (int)strlen(g_head));
+    if (g_lastkey[0]) {
+        SetTextColor(mem, C_AMBER);
+        TextOutA(mem, 16, y + 22, g_lastkey, (int)strlen(g_lastkey));
+    }
 
     y += 30;
     SetTextColor(mem, RGB(0x55, 0x49, 0x3f));
-    const char *foot = "DOOM computed by find&replace \xC2\xB7 544 rules \xC2\xB7 PCRE2 \xC2\xB7 "
-                       "WASD+arrows/Ctrl/Space \xC2\xB7 honest Markov machine";
+    const char *foot = "WASD/arrows move | Ctrl fire | Space use | Esc menu | "
+                       "1..3 window size | F12 screenshot";
     TextOutA(mem, 16, y, foot, (int)strlen(foot));
 
     BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
@@ -259,9 +296,15 @@ static void send_key(int pressed, unsigned char key) {
 static LRESULT CALLBACK wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     switch (m) {
     case WM_KEYDOWN:
+        if (wp >= '1' && wp <= '3') { apply_scale(w, (int)(wp - '0')); return 0; }
+        if (wp == VK_F12) { save_screenshot(); return 0; }
         if (!(lp & 0x40000000)) {            /* без автоповтора */
             unsigned char k = vk_to_doom(wp);
-            if (k) send_key(1, k);
+            if (k) {
+                send_key(1, k);
+                snprintf(g_lastkey, sizeof g_lastkey,
+                         "key 0x%02x down -> input.bin", k);
+            }
         }
         return 0;
     case WM_KEYUP: {
@@ -269,11 +312,17 @@ static LRESULT CALLBACK wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         if (k) send_key(0, k);
         return 0;
     }
-    case WM_TIMER:
+    case WM_TIMER: {
         poll_fb();
         poll_live();
+        char title[160];
+        snprintf(title, sizeof title,
+                 "DOOM on regex - pass %llu, %.0f/s, len %llu",
+                 g_pass, g_pps, g_len);
+        SetWindowTextA(w, title);
         InvalidateRect(w, NULL, FALSE);
         return 0;
+    }
     case WM_PAINT:
         paint(w);
         return 0;
@@ -336,7 +385,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmd, int show) {
     RECT need = {0, 0, WIN_W, WIN_H};
     AdjustWindowRect(&need, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME, FALSE);
     HWND w = CreateWindowA("doomregexdemo",
-        "DOOM computed by regex substitution \xE2\x80\x94 live",
+        "DOOM computed by regex substitution - live",
         (WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX),
         CW_USEDEFAULT, CW_USEDEFAULT,
         need.right - need.left, need.bottom - need.top,

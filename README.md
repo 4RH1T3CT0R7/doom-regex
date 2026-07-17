@@ -16,7 +16,7 @@ Below you can watch the machine paint a frame. Green marks the pixels the curren
   <a href="https://4rh1t3ct0r7.github.io/doom-regex/"><img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site-c23b22?style=for-the-badge" alt="Open the interactive site"></a>
 </p>
 
-A single frame of E1M1 (frame 60 of the timedemo) takes **13 994 067 substitutions** and comes out byte-identical to the same frame rendered by natively compiled DOOM; the SHA-256 hashes match. One frame could always be a fluke, so here are a hundred of them: frames 160 through 259 of the timedemo, in which the player grabs the armor and the shotgun while demons close in. Computing the clip took about 1.25 billion substitutions, and every one of the hundred frames matches the native oracle byte for byte:
+A single frame of E1M1 (frame 60 of the timedemo) takes **13 994 067 substitutions** and comes out byte-identical to the same frame rendered by natively compiled DOOM; the SHA-256 hashes match. One frame could always be a fluke, so here are a hundred of them: frames 160 through 259 of the timedemo, in which the player grabs the armor and the shotgun while demons close in. Computing the clip took about 1.25 billion substitutions, and every one of the hundred frames matches the native build byte for byte:
 
 <p align="center">
   <img src="docs/doom_regex_clip.gif" width="640" alt="100 frames of the timedemo computed by substitutions">
