@@ -58,26 +58,10 @@ DOOM (via [doomgeneric](https://github.com/ozkl/doomgeneric)) is compiled to
 this CPU with [8cc and ELVM](https://github.com/shinh/elvm), following the
 trail blazed by [BFDoom](https://github.com/jasperdevs/BFDoom).
 
-## How you know it's honest
-
-It would be easy to hide computation in the driver, so the contract is strict:
-
-- The driver may only: apply substitutions, copy I/O bytes in and out, and
-  check two literal stop markers (`|ST:hlt`, `|ST:err`). It never parses the
-  state and never computes anything from it.
-- The ruleset is hashed before the run; the driver refuses a modified file.
-- Every performance shortcut (in-place splicing, skipping bytes that a
-  substitution provably leaves in place) has a slow reference mode that must
-  produce byte-identical states, enforced by tests.
-- A reference emulator executes the same ISA in Python. The lockstep test
-  suite requires the string to equal the emulator's encoded state **after
-  every single substitution**. The rendered frames match natively compiled
-  DOOM. Three independent oracles, one answer.
-
-If a limit error ever comes back from the regex engine (backtracking
-budget, JIT stack), the driver halts loudly rather than reinterpreting it as
-"no match" - that distinction once cost us a night of debugging a frame that
-ended cleanly in the wrong place.
+None of this is taken on faith: a reference emulator runs the same
+instruction set in Python, and the test suite requires the string to equal
+the emulator's state byte for byte after every single substitution. The
+rendered frames match natively compiled DOOM, SHA-256 to SHA-256.
 
 ## Numbers
 
