@@ -11,3 +11,5 @@ trace.jsonl
 stats.csv
 .claude/
 .idea/
+.playwright-mcp/
+pages_full.png
