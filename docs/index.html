@@ -189,7 +189,6 @@
   <div class="tl"><img src="e1m1_frame.png" alt="the finished frame"></div>
 
   <footer>
-    <span data-i="footer"></span> |
     <a href="https://github.com/4RH1T3CT0R7/doom-regex">github.com/4RH1T3CT0R7/doom-regex</a>
   </footer>
 </div>
@@ -240,7 +239,6 @@ const I18N = {
     toy_halted: "no rule matches: fixed point",
     h_tl: "The finished frame",
     p_tl: "13 994 067 substitutions later you get frame 60 of the timedemo, and its SHA-256 matches the natively compiled DOOM exactly; not a single character of the frame was produced by anything other than find-and-replace.",
-    footer: "Built with PCRE2 | verified against a reference emulator and native DOOM",
     // microscope rule explanations
     ex_movi: "MOVI: the rule matched opcode 02 in the instruction cache, found the destination register's slot through a backreference on its name, and wrote the immediate value into it. The phase then advances to 1, which queues up the PC increment.",
     ex_pcinc: "PC increment: the last digit of the PC is looked up in the #D digit table, where a lookahead finds the character sitting right after it, and that next character is exactly the incremented digit, so the whole operation is a table lookup rather than arithmetic.",
@@ -294,7 +292,6 @@ const I18N = {
     toy_halted: "ни одно правило не совпало: неподвижная точка",
     h_tl: "Готовый кадр",
     p_tl: "Спустя 13 994 067 подстановок получается кадр 60 таймдемо, и его SHA-256 совпадает с хешем кадра нативно скомпилированного DOOM. Ни один символ этого кадра не был получен ничем, кроме поиска с заменой.",
-    footer: "Собрано на PCRE2 | сверено с референс-эмулятором и нативным DOOM",
     ex_movi: "MOVI: правило совпало с опкодом 02 в кэше инструкции, по обратной ссылке на имя нашло слот регистра-приёмника и записало туда непосредственное значение. Дальше фаза переключается в 1, и машина уходит увеличивать PC.",
     ex_pcinc: "Инкремент PC: последняя цифра счётчика команд ищется в таблице цифр #D, где lookahead берёт символ, стоящий сразу после неё, а это как раз та же цифра плюс один. Арифметики здесь нет вовсе, всю работу делает таблица.",
     ex_fetch: "Выборка: машина прыгает на точное число символов вглубь секции программы (длина прыжка собирается из цифр PC условными группами), попадает прямо на слот инструкции и копирует его в кэш.",
