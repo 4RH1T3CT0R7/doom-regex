@@ -5,39 +5,35 @@ DOOM, running on a computer whose only instruction is a regex find-and-replace.
 The entire machine is one long string. Registers, RAM, the framebuffer and the
 DOOM engine itself live in that string as plain text. A small driver applies a
 fixed, ordered list of substitution rules to it, over and over. Whichever rule
-matches first fires once — that's a step. There is no interpreter and no
+matches first fires once - that's a step. There is no interpreter and no
 arithmetic anywhere outside the rules. Delete the ruleset and you're left with
 a text file.
 
+This is the machine painting a frame. Green marks the pixels the current
+substitutions are writing: walls go down column by column, floors span by
+span, and the pauses are the BSP traversal thinking between strokes. Every
+green stroke is a regex replacing a few characters inside a 96.6 MB string:
+
 <p align="center">
   <a href="https://4rh1t3ct0r7.github.io/doom-regex/">
-    <img src="docs/e1m1_frame.png" width="640" alt="E1M1 rendered by regex substitutions"><br>
-    <img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site%20%E2%80%94%20watch%20the%20machine%20think-c23b22?style=for-the-badge" alt="Open the interactive site">
+    <img src="docs/render_timelapse.gif" width="640" alt="the machine painting a frame, writes highlighted in green"><br>
+    <img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site%20-%20watch%20the%20machine%20think-c23b22?style=for-the-badge" alt="Open the interactive site">
   </a>
 </p>
 
-This frame of E1M1 took **13 994 067 substitutions** over a 96.6 MB string and
-is byte-identical (SHA-256) to the same frame rendered by natively compiled
-DOOM. It's not a still, either — here are a hundred frames of the built-in
-timedemo, the player grabbing the shotgun while demons close in. Every one of
-the hundred frames matches the native oracle byte for byte:
+One frame of E1M1 takes **13 994 067 substitutions** and comes out
+byte-identical (SHA-256) to the same frame rendered by natively compiled
+DOOM. And it's not a single lucky frame - here are a hundred frames of the
+built-in timedemo, the player grabbing the shotgun while demons close in.
+Every one of the hundred matches the native oracle byte for byte:
 
 <p align="center">
   <img src="docs/doom_regex_clip.gif" width="640" alt="100 frames of the timedemo computed by substitutions">
 </p>
 
-And this is what rendering looks like from the inside — green marks the pixels
-the machine wrote during the last few thousand substitutions. Walls go down
-column by column, floors span by span; the pauses are BSP traversal and game
-logic thinking between strokes:
-
-<p align="center">
-  <img src="docs/render_timelapse.gif" width="640" alt="render front timelapse">
-</p>
-
 ## Why this is even possible
 
-Iterated string rewriting is Turing-complete — it's a Markov algorithm, one of
+Iterated string rewriting is Turing-complete - it's a Markov algorithm, one of
 the classic models of computation. So the question was never *whether* a pile
 of regexes can run DOOM, but whether it can do it before the heat death of the
 universe, and how you prove it isn't cheating.
@@ -45,7 +41,7 @@ universe, and how you prove it isn't cheating.
 The rules implement a small 32-bit CPU (RVM-1):
 
 - **State** is a string like
-  `RVM1|ST:run|PH:0|CI:…|PC:00046bbc|R0:…|R7:…|CLK:…|` followed by zones:
+  `RVM1|ST:run|PH:0|CI:...|PC:00046bbc|R0:...|R7:...|CLK:...|` followed by zones:
   lookup tables, flat RAM (`#N`), the program (`#P`), the framebuffer (`#F`),
   the WAD (`#W`), sparse high memory (`#M`), and the I/O tail.
 - **Addition** is eight lookahead probes into a 512-entry full-adder table,
@@ -53,7 +49,7 @@ The rules implement a small 32-bit CPU (RVM-1):
   micro-phases with a transient accumulator field in the header.
 - **Memory access** jumps an *exact number of characters* into the flat RAM
   zone. The jump length is assembled from the address digits by empty "bit
-  marker" groups and conditional jumps — a binary tree spelled in regex. No
+  marker" groups and conditional jumps - a binary tree spelled in regex. No
   scanning; landing on a slot is O(1).
 - **Fetch** does the same trick with the program counter to find the current
   instruction slot.
@@ -81,7 +77,7 @@ It would be easy to hide computation in the driver, so the contract is strict
 
 When a limit error ever comes back from the regex engine (backtracking
 budget, JIT stack), the driver halts loudly rather than reinterpreting it as
-"no match" — that distinction once cost us a night of debugging a frame that
+"no match" - that distinction once cost us a night of debugging a frame that
 ended cleanly in the wrong place.
 
 ## Numbers
@@ -93,9 +89,9 @@ ended cleanly in the wrong place.
 | one frame of E1M1 | 13 994 067 substitutions |
 | the 100-frame clip | ~1.25 billion substitutions |
 | speed | ~25 000 substitutions/s (PCRE2 with JIT, one core) |
-| first working build | 7 substitutions/s — the frame took 12 hours |
+| first working build | 7 substitutions/s - the frame took 12 hours |
 
-The 3500× between the first and the last row is its own story: digit-tree
+The 3500x between the first and the last row is its own story: digit-tree
 fetch instead of scanning the program zone, dotall jumps so the JIT advances
 a pointer instead of scanning for newlines, a flat memory zone instead of a
 sparse cell scan, and an identity-skip splice so an 80 MB prefix that a
@@ -103,7 +99,7 @@ substitution keeps verbatim is never copied at all.
 
 ## Try it
 
-**[Download the demo](https://github.com/4RH1T3CT0R7/doom-regex/releases/latest)** —
+**[Download the demo](https://github.com/4RH1T3CT0R7/doom-regex/releases/latest)** -
 unzip, double-click `doomregex_demo.exe` (Windows). It launches the real
 machine on the real ruleset and shows the frame being rendered live, along
 with the substitution feed: which rule fired, what it consumed, what it
@@ -127,7 +123,7 @@ prototype must produce identical bytes), and golden checks.
 ## Prior art, and what's new here
 
 - Nicholas Carlini's [Regex Chess](https://nicholas.carlini.com/writing/2025/regex-chess.html)
-  plays chess with 84 688 substitutions — but as a fixed straight-line
+  plays chess with 84 688 substitutions - but as a fixed straight-line
   sequence, deliberately not Turing-complete. This project is the other
   branch: a fixed *cyclic* ruleset, real model-of-computation territory.
 - [BFDoom](https://github.com/jasperdevs/BFDoom) runs DOOM compiled to
@@ -136,7 +132,7 @@ prototype must produce identical bytes), and golden checks.
 - sed has Tetris and Sokoban; esolang folks proved iterated regex
   replacement Turing-complete years ago.
 
-As far as we can tell, nobody had run DOOM — or any game, or any video — on
+As far as we can tell, nobody had run DOOM - or any game, or any video - on
 an iterated regex substitution loop before. If you know prior art we missed,
 open an issue.
 
