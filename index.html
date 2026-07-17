@@ -125,7 +125,7 @@
     <div class="stat"><b>13 994 067</b><span data-i="st_subs"></span></div>
     <div class="stat"><b>544</b><span data-i="st_rules"></span></div>
     <div class="stat"><b>96.6 MB</b><span data-i="st_state"></span></div>
-    <div class="stat"><b>~25 000/s</b><span data-i="st_speed"></span></div>
+    <div class="stat"><b>~80 000/s</b><span data-i="st_speed"></span></div>
   </div>
 
   <h2 data-i="h_what"></h2>
@@ -197,7 +197,7 @@
   </ul>
 
   <footer>
-    <span data-i="footer"></span> ·
+    <span data-i="footer"></span> |
     <a href="https://github.com/4RH1T3CT0R7/doom-regex">github.com/4RH1T3CT0R7/doom-regex</a>
   </footer>
 </div>
@@ -216,7 +216,7 @@ const I18N = {
     st_subs: "substitutions to render this frame",
     st_rules: "rewrite rules, fixed and hashed before the run",
     st_state: "machine state - a single string",
-    st_speed: "substitutions per second (PCRE2, JIT)",
+    st_speed: "substitutions per second (PCRE2, JIT; clip run, per core)",
     h_what: "What is going on here",
     p_what1: "The whole machine is one long string. Registers, RAM, the framebuffer, the DOOM engine compiled to a custom instruction set - everything lives in that string as plain text. A driver applies a fixed, ordered list of find-and-replace rules to it. Whichever rule matches first fires once, and that's a step. There is no other computation: no interpreter, no arithmetic in the host, nothing. If you deleted every rule, the machine would be a text file.",
     p_what2: "This works because iterated string rewriting is Turing-complete - it's a Markov algorithm, one of the classic 1950s models of computation. The rules here implement a small 32-bit CPU: an adder built from a lookup table of nibble sums, jumps that navigate by capture groups, a fetch stage that finds the current instruction by literally jumping N characters into the program section. DOOM is compiled to that CPU with 8cc and ELVM.",
@@ -252,7 +252,7 @@ const I18N = {
     p_honest1: "It's easy to cheat at this kind of project by hiding computation in the driver. The contract here is strict:",
     li_h1: "The driver only applies substitutions, copies I/O bytes, and checks two literal stop markers. It never parses the state, never does arithmetic on it.",
     li_h2: "The ruleset is fixed and SHA-256-hashed before the run; the driver refuses a modified file.",
-    li_h3: "Every performance trick (in-place splice, skipping unchanged bytes) has a slow reference mode that must produce byte-identical states - and it's tested in CI.",
+    li_h3: "Every performance trick (in-place splice, skipping unchanged bytes) has a slow reference mode that must produce byte-identical states - and the test suite enforces it.",
     footer: "Built with PCRE2 | verified against a reference emulator and native DOOM",
     // microscope rule explanations
     ex_movi: "MOVI: the rule matched opcode 02 in the instruction cache, captured the destination register's slot by a backreference on its name, and wrote the immediate value into it. Phase moves to 1 (increment PC).",
@@ -273,11 +273,11 @@ const I18N = {
     btn_gh: "Исходники на GitHub",
     btn_demo: "Скачать демо",
     st_subs: "подстановок, чтобы отрендерить этот кадр",
-    st_rules: "правил замены, зафиксированы и захешированы до запуска",
+    st_rules: "правил замены, зафиксированных и захешированных до запуска",
     st_state: "состояние машины - одна строка",
-    st_speed: "подстановок в секунду (PCRE2, JIT)",
+    st_speed: "подстановок в секунду (PCRE2, JIT; замер клипа, на ядро)",
     h_what: "Что здесь происходит",
-    p_what1: "Вся машина - одна длинная строка. Регистры, память, фреймбуфер, движок DOOM, скомпилированный в самодельную систему команд, - всё лежит в этой строке обычным текстом. Драйвер применяет к ней фиксированный упорядоченный список правил поиска-замены. Какое правило совпало первым - то и срабатывает, один раз. Это шаг. Другого вычисления нет: ни интерпретатора, ни арифметики на стороне хоста. Удалите правила - останется текстовый файл.",
+    p_what1: "Вся машина - одна длинная строка. Регистры, память, фреймбуфер, движок DOOM, скомпилированный в самодельную систему команд, - всё лежит в этой строке обычным текстом. Драйвер применяет к ней фиксированный упорядоченный список правил поиска-замены. Какое правило совпало первым - то и срабатывает, один раз. Это шаг. Других вычислений нет: ни интерпретатора, ни арифметики на стороне хоста. Удалите правила - останется текстовый файл.",
     p_what2: "Это работает, потому что итерированная замена строк Тьюринг-полна - это алгоритм Маркова, классическая модель вычислений из 1950-х. Правила реализуют маленький 32-битный процессор: сумматор - таблица сумм шестнадцатеричных цифр, переходы - навигация по группам захвата, выборка инструкции - буквальный прыжок на N символов вглубь секции программы. DOOM скомпилирован в этот процессор через 8cc и ELVM.",
     p_what3: "Каждый шаг проверен. Референсный эмулятор исполняет ту же систему команд на Python; после каждой подстановки строка обязана совпасть с закодированным состоянием эмулятора байт в байт. SHA-256 отрендеренного кадра совпадает с нативно скомпилированным DOOM. Три независимых оракула - один ответ.",
     h_clip: "Сто кадров настоящей игры",
@@ -304,23 +304,23 @@ const I18N = {
     toy_r2: "хвост из девяток -> перенос: цифра перед ними увеличивается, девятки становятся нулями",
     toy_r3: "все девятки -> обнуление",
     toy_matched: "сработало правило: ",
-    toy_halted: "ни одно правило не совпадает - фикс-точка",
+    toy_halted: "ни одно правило не совпадает - неподвижная точка",
     h_tl: "Готовый кадр",
     p_tl: "13 994 067 подстановок спустя: кадр 60 таймдемо, SHA-256 байт в байт с нативно скомпилированным DOOM. Ни один символ этого кадра не был получен ничем, кроме поиска с заменой.",
     h_honest: "Правила честности",
     p_honest1: "В таком проекте легко сжульничать, спрятав вычисления в драйвер. Здесь контракт жёсткий:",
     li_h1: "Драйвер только применяет подстановки, копирует байты ввода-вывода и проверяет два литеральных маркера останова. Он никогда не разбирает состояние и не считает по нему ничего.",
     li_h2: "Набор правил фиксируется и хешируется SHA-256 до запуска; изменённый файл драйвер не примет.",
-    li_h3: "У каждого трюка производительности (замена на месте, пропуск неизменённых байтов) есть медленный эталонный режим, обязанный давать байт-идентичные состояния - это проверяется тестами.",
+    li_h3: "У каждой оптимизации (замена на месте, пропуск неизменённых байтов) есть медленный эталонный режим, обязанный давать байт-идентичные состояния - это проверяется тестами.",
     footer: "Собрано на PCRE2 | сверено с референс-эмулятором и нативным DOOM",
     ex_movi: "MOVI: правило совпало с опкодом 02 в кэше инструкции, нашло слот регистра-приёмника обратной ссылкой на его имя и записало туда непосредственное значение. Фаза переходит в 1 (инкремент PC).",
     ex_pcinc: "Инкремент PC: последняя цифра PC ищется в таблице цифр #D - lookahead находит символ, стоящий сразу после неё, это и есть цифра плюс один. Никакой арифметики, только таблица.",
     ex_fetch: "Выборка: машина прыгает на точное число символов вглубь секции программы - длина прыжка собирается из цифр PC условными группами, - попадает на слот инструкции и копирует его в кэш.",
-    ex_add: "ADD: восемь lookahead-проб в таблицу #A (полный сумматор шестнадцатеричных цифр, 512 статей) складывают число поразрядно, протаскивая перенос через группы захвата.",
+    ex_add: "ADD: восемь lookahead-проб в таблицу #A (полный сумматор шестнадцатеричных цифр, 512 записей) складывают числа поразрядно, протаскивая перенос через группы захвата.",
     ex_addi: "ADDI: та же цепочка из восьми табличных проб, что у ADD, но второе слагаемое берётся из поля непосредственного значения инструкции.",
-    ex_store: "Запись в фреймбуфер: цифры адреса выбирают ячейку в зоне #F; правило потребляет всё до этой ячейки и переписывает её две hex-цифры - меняется один пиксель.",
+    ex_store: "Запись в фреймбуфер: цифры адреса выбирают ячейку в зоне #F; правило съедает всё до этой ячейки и переписывает две её hex-цифры - меняется один пиксель.",
     ex_mul: "MUL идёт микрофазами: в заголовке появляется временное поле |MF: с аккумулятором, шаги Хорнера перемножают ниблы через таблицу #T. Когда результат ложится в регистр, поле исчезает.",
-    ex_hlt: "HLT: состояние переключается в ST:hlt. Дальше ни одно правило совпасть не может - строка стала фикс-точкой, машина остановилась сама.",
+    ex_hlt: "HLT: состояние переключается в ST:hlt. Дальше ни одно правило совпасть не может - строка стала неподвижной точкой, машина остановилась сама.",
     ex_generic: "Одна подстановка: срабатывает первое по порядку правило, которое совпало.",
   }
 };
@@ -382,7 +382,7 @@ function mShow(i) {
   document.getElementById("mafter").innerHTML = hl(fr.after, fr.hl_a, "ins");
   document.getElementById("mrule").textContent = fr.rule;
   document.getElementById("mcount").textContent =
-    "pass " + (i + 1) + "/" + MICRO.frames.length + " · len " + fr.len.toLocaleString();
+    "pass " + (i + 1) + "/" + MICRO.frames.length + " | len " + fr.len.toLocaleString();
   document.getElementById("mexplain").textContent = I18N[LANG][ruleKey(fr.rule)];
 }
 function mStep(d) {
@@ -397,27 +397,27 @@ function mAuto() {
 
 // ---------- анатомия правила ----------
 const ANAT = [
-  ["\\ARVM1\\|ST:run\\|PH:0\\|", {
-    en: "Anchor and gates. \\A pins the match to the very start of the string, then three literal fields must be present: the machine is alive (ST:run) and in the execute phase (PH:0). Any rule that shouldn't fire right now fails here, on the first few characters - that's what keeps 544 rules cheap.",
-    ru: "Якорь и гейты. \\A прибивает матч к самому началу строки, дальше обязаны совпасть три литеральных поля: машина жива (ST:run) и находится в фазе исполнения (PH:0). Любое правило, которому сейчас не время, проваливается здесь, на первых символах - поэтому 544 правила стоят дёшево." }],
+  ["\ARVM1\|ST:run\|PH:0\|", {
+    en: "Anchor and gates. \A pins the match to the very start of the string, then three literal fields must match: the RVM1 magic, a live machine (ST:run), and the execute phase (PH:0). A rule whose turn it isn't fails here, within the first characters - that is what keeps 544 rules cheap.",
+    ru: "Якорь и гейты. \A прибивает матч к самому началу строки, дальше обязаны совпасть три литеральных поля: магия RVM1, живая машина (ST:run) и фаза исполнения (PH:0). Правило, которому сейчас не время, проваливается здесь, на первых символах - поэтому 544 правила обходятся дёшево." }],
   ["CI:(?<ci>23(?<d>[0-7]).", {
-    en: "Opcode check in the instruction cache. The literal 23 is STOREI's opcode; if the cached instruction starts with anything else, the rule fails in O(1). The destination register number is captured as 'd'.",
-    ru: "Проверка опкода в кэше инструкции. Литерал 23 - опкод STOREI; если закэшированная инструкция начинается с другого, правило отваливается за O(1). Номер регистра-источника захватывается группой 'd'." }],
-  ["00(?>(?=[89a-f])(?<na53>)|)...(?<a5>[0-6])...", {
-    en: "Address capture with bit markers. While consuming the address digits, empty named groups like 'na53' get set - or not - depending on which bits each digit has (the class [89a-f] means 'bit 3 is set'). No text is consumed by the markers; they just remember the bits.",
-    ru: "Захват адреса с бит-маркерами. Пока правило читает цифры адреса, пустые именованные группы вроде 'na53' ставятся - или нет - в зависимости от битов каждой цифры (класс [89a-f] значит 'бит 3 установлен'). Маркеры не съедают текст - они просто запоминают биты." }],
+    en: "Opcode check in the instruction cache. The literal 23 is STOREI's opcode; if the cached instruction starts with anything else, the rule fails in O(1). The source register number - the one whose value will be stored - is captured as 'd'.",
+    ru: "Проверка опкода в кэше инструкции. Литерал 23 - опкод STOREI; если закэшированная инструкция начинается с другого, правило отваливается за O(1). Номер регистра-источника - того, чьё значение попадёт в память - захватывается группой 'd'." }],
+  ["00(?>(?=[4-7c-f])(?<na52>)|)(?>(?=[2367abef])(?<na51>)|)(?>(?=[13579bdf])(?<na50>)|)[0-6]...", {
+    en: "Address capture with bit markers. While the rule reads the address digits, empty named groups like 'na52' get set - or not - depending on the bits of each digit (the class [4-7c-f] means 'bit 2 is set'). The markers consume no text; they just remember the bits for later.",
+    ru: "Захват адреса с бит-маркерами. Пока правило читает цифры адреса, пустые именованные группы вроде 'na52' ставятся - или нет - в зависимости от битов каждой цифры (класс [4-7c-f] значит 'бит 2 установлен'). Маркеры не съедают текст - они просто запоминают биты на потом." }],
   ["(?=...R(?P=d):(?<v>.{8}))", {
     en: "Reading the register. A lookahead walks to the register whose name equals the captured digit 'd' - a backreference inside the register's tag - and captures its 8 hex digits as 'v' without consuming anything.",
-    ru: "Чтение регистра. Lookahead доходит до регистра, чьё имя равно захваченной цифре 'd' - обратная ссылка прямо внутри тега регистра - и захватывает его 8 hex-цифр группой 'v', ничего не потребляя." }],
-  ["(?<pre>(?s:.{65535}.{65535}...).{47452}", {
-    en: "The jump. This consumes an exact number of characters - tens of megabytes of them - to land precisely at the start of the flat memory zone. (?s:.{65535}) blocks are the only way to spell a 58-million-character hop within regex repetition limits.",
-    ru: "Прыжок. Здесь потребляется точное число символов - десятки мегабайт - чтобы приземлиться ровно на начало плоской зоны памяти. Блоки (?s:.{65535}) - единственный способ записать прыжок в 58 миллионов символов в пределах лимитов повторов regex." }],
-  ["(?(na53).{2621440}|)(?(na52).{1310720}|)...", {
-    en: "The binary tree. Each conditional group asks 'was bit marker 'na53' set?' and, if yes, skips another exact distance - 8 characters times the bit's weight. The sum of the taken branches is exactly 8xaddress: the match lands on the right memory slot with zero scanning.",
-    ru: "Бинарное дерево. Каждая условная группа спрашивает: 'стоял ли бит-маркер 'na53'?' - и если да, пропускает ещё одно точное расстояние: 8 символов, умноженные на вес бита. Сумма взятых веток - ровно 8xадрес: матч попадает в нужный слот памяти вообще без сканирования." }],
+    ru: "Чтение регистра. Lookahead доходит до регистра, чьё имя равно захваченной цифре 'd' - обратная ссылка прямо внутри тега регистра - и захватывает его 8 hex-цифр группой 'v', ничего не съедая." }],
+  ["(?<pre>(?s:.{47408})", {
+    en: "The base jump. This consumes exactly 47 408 characters - the header and the lookup tables - and lands at the start of the flat memory zone: 58 720 256 characters of slots, eight hex digits per word.",
+    ru: "Базовый прыжок. Здесь съедается ровно 47 408 символов - заголовок и таблицы - и матч оказывается на старте плоской зоны памяти: 58 720 256 символов слотов, по восемь hex-цифр на слово." }],
+  ["(?(na52)(?s:.{65535}x512)|)(?(na51)(?s:.{65535}x256)|)...", {
+    en: "The binary tree. Each conditional group asks 'was bit marker na52 set?' and, if yes, skips another exact distance: 33 554 432 characters for that bit (spelled as 512 blocks of .{65535} - regex repetition tops out at 65 535), then 16 777 216, and so on down to 8. The taken branches add up to exactly 8 x address: the match lands on the right slot with zero scanning.",
+    ru: "Бинарное дерево. Каждая условная группа спрашивает: 'стоял ли бит-маркер na52?' - и если да, пропускает ещё одно точное расстояние: 33 554 432 символа за этот бит (записано 512 блоками .{65535} - повтор в regex ограничен 65 535), дальше 16 777 216 и так вниз до 8. Сумма взятых веток - ровно 8 x адрес: матч попадает в нужный слот вообще без сканирования." }],
   [").{8}", {
-    en: "The payload. Everything before the slot was captured as 'pre'; these 8 characters are the old value, consumed and thrown away. The replacement writes ${pre}${v} - the untouched prefix, then the register value. One memory write, done.",
-    ru: "Полезная нагрузка. Всё до слота захвачено группой 'pre'; эти 8 символов - старое значение, оно съедается. Замена пишет ${pre}${v} - нетронутый префикс и значение регистра. Одна запись в память готова." }],
+    en: "The payload. Everything before the slot was captured as 'pre'; these 8 characters are the old value, consumed and thrown away. The replacement writes ${pre}${v} - the untouched prefix, then the register value. One memory write - done.",
+    ru: "Полезная нагрузка. Всё до слота захвачено группой 'pre'; эти 8 символов - старое значение, оно съедается. Замена пишет ${pre}${v} - нетронутый префикс и значение регистра. Одна запись в память - готово." }],
 ];
 const anatEl = document.getElementById("anat");
 ANAT.forEach(([frag], i) => {
@@ -452,7 +452,7 @@ const TOY = [
       if (!t) return null;
       return m.groups.pre + t.groups.next + "|" + m.groups.rest;
     },
-    show: 'P: ^(?<pre>TOY\\|ST:run\\|CNT:\\d{3})(?<d>[0-8])\\|(?=[\\s\\S]*#D\\d*?\\k<d>(?<next>\\d))\nR: ${pre}${next}|…' },
+    show: 'P: ^(?<pre>TOY\\|ST:run\\|CNT:\\d{3})(?<d>[0-8])\\|(?=[\\s\\S]*#D\\d*?\\k<d>(?<next>\\d))\nR: ${pre}${next}|...' },
   { name: "inc_carry",
     re: null,
     apply(s) {
@@ -462,7 +462,7 @@ const TOY = [
       if (!t) return null;
       return m.groups.pre + t.groups.next + "0".repeat(m.groups.nines.length) + "|" + m.groups.rest;
     },
-    show: 'P: ^(?<pre>TOY\\|…CNT:\\d*)(?<d>[0-8])(?<nines>9+)\\|(?=[\\s\\S]*#D\\d*?\\k<d>(?<next>\\d))\nR: ${pre}${next}000…|' },
+    show: 'P: ^(?<pre>TOY\\|…CNT:\\d*)(?<d>[0-8])(?<nines>9+)\\|(?=[\\s\\S]*#D\\d*?\\k<d>(?<next>\\d))\nR: ${pre}${next}000...|' },
   { name: "wrap",
     re: null,
     apply(s) {
