@@ -26,6 +26,10 @@ if [ "$MODE" = "scout" ]; then
   # разведка окна клипа на tier-1: дамп каждого 20-го кадра до 500
   CFLAGS+=(-DRVM_TIMEDEMO -DRVM_DUMP_EVERY=20 -DRVM_DUMP_LAST=500)
 fi
+if [ "$MODE" = "scoutall" ]; then
+  # полный оракул клипа: дамп КАЖДОГО кадра до 259
+  CFLAGS+=(-DRVM_TIMEDEMO -DRVM_DUMP_EVERY=1 -DRVM_DUMP_LAST=259)
+fi
 if [ "$MODE" = "clip" ]; then
   # G2e: снапшот-маркер перед кадром 60, '' после каждого кадра
   # 60..159 (100 кадров), exit после

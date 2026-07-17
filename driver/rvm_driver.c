@@ -840,6 +840,23 @@ int main(int argc, char **argv) {
         if (!vm.splice_md) die("oom splice_md");
     }
     load_state(&vm, state_path);
+    if (vm.fbseq_dir) {
+        /* сегмент клипа: OUT снапшота уже содержит прежние '\f'-маркеры
+         * — не эхоить и не считать их (иначе воркер мгновенно
+         * экспортирует N копий стартового состояния) */
+        const char *tag = NULL;
+        for (const char *q = vm.state + (vm.len >= 5 ? vm.len - 5 : 0);
+             q >= vm.state; q--)
+            if (q[0] == '|' && memcmp(q, "|OUT:", 5) == 0) { tag = q; break; }
+        if (tag) {
+            const char *p2 = tag + 5;
+            const char *end2 = strchr(p2, '|');
+            if (end2) {
+                vm.out_seen = (size_t)(end2 - p2);
+                vm.out_off = (size_t)(tag - vm.state);
+            }
+        }
+    }
     if (journal_path) {
         intail.journal = fopen(journal_path, "wb");
         if (!intail.journal) die("не открыть --io-journal");
