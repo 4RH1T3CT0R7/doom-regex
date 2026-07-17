@@ -1,0 +1,59 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - button "EN" [ref=e3] [cursor=pointer]
+    - button "RU" [ref=e4] [cursor=pointer]
+  - banner:
+    - heading [level=1]
+    - paragraph
+  - generic [ref=e5]:
+    - img "the machine painting E1M1, writes in green" [ref=e7]
+    - generic [ref=e8]:
+      - link [ref=e9] [cursor=pointer]:
+        - /url: https://github.com/4RH1T3CT0R7/doom-regex
+      - link [ref=e10] [cursor=pointer]:
+        - /url: https://github.com/4RH1T3CT0R7/doom-regex/releases/latest
+    - generic [ref=e11]:
+      - generic [ref=e12]: 13 994 067
+      - generic [ref=e14]: "544"
+      - generic [ref=e16]: 96.6 MB
+      - generic [ref=e18]: ~25 000/s
+    - heading [level=2]
+    - paragraph
+    - paragraph
+    - paragraph
+    - heading [level=2]
+    - paragraph
+    - generic [ref=e20]:
+      - slider [ref=e22]: "0"
+      - button [ref=e24] [cursor=pointer]
+    - heading [level=2]
+    - paragraph
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - button "◀" [ref=e27] [cursor=pointer]
+        - button "▶" [ref=e28] [cursor=pointer]
+        - button [ref=e29] [cursor=pointer]
+      - paragraph [ref=e33]
+    - heading [level=2]
+    - paragraph
+    - heading [level=2]
+    - paragraph
+    - generic [ref=e36]:
+      - textbox [ref=e37]
+      - generic [ref=e38]:
+        - button [ref=e39] [cursor=pointer]
+        - button [ref=e40] [cursor=pointer]
+      - group [ref=e41]
+    - heading [level=2]
+    - paragraph
+    - img "the finished frame" [ref=e44]
+    - heading [level=2]
+    - paragraph
+    - list [ref=e45]:
+      - listitem [ref=e46]
+      - listitem [ref=e47]
+      - listitem [ref=e48]
+    - contentinfo [ref=e49]:
+      - text: ·
+      - link "github.com/4RH1T3CT0R7/doom-regex" [ref=e50] [cursor=pointer]:
+        - /url: https://github.com/4RH1T3CT0R7/doom-regex

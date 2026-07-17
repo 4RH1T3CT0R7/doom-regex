@@ -60,8 +60,7 @@ trail blazed by [BFDoom](https://github.com/jasperdevs/BFDoom).
 
 ## How you know it's honest
 
-It would be easy to hide computation in the driver, so the contract is strict
-([HONESTY.md](HONESTY.md)):
+It would be easy to hide computation in the driver, so the contract is strict:
 
 - The driver may only: apply substitutions, copy I/O bytes in and out, and
   check two literal stop markers (`|ST:hlt`, `|ST:err`). It never parses the
@@ -147,3 +146,9 @@ scripts/     snapshot baking, benchmarks, clip/timelapse builders
 demo/        the downloadable viewer (Win32/GDI)
 docs/        the interactive site (GitHub Pages)
 ```
+
+## License
+
+GPL-2.0. The repository contains a port of DOOM (via doomgeneric), and the
+DOOM source is GPL - everything downstream inherits it. doom1.wad is the
+original id Software shareware data and is not covered by the GPL.
