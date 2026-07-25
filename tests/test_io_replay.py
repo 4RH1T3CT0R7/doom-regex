@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Ревью G1 (honesty): FIFO-порядок ввода и воспроизводимость replay."""
+"""FIFO-порядок ввода и воспроизводимость replay."""
 import re as stdre
 import sys
 from pathlib import Path

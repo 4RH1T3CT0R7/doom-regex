@@ -1,17 +1,15 @@
-/* rvm_driver.c — продакшн-драйвер regex-машины (PCRE2, JIT).
+/* rvm_driver.c - the regex machine's driver (PCRE2, JIT).
  *
- * ЧЕСТНОСТЬ (см. HONESTY.md): драйвер — «материнская плата», не CPU.
- * Разрешено ТОЛЬКО:
- *   - применять правила подстановки по алгоритму Маркова (первое
- *     совпавшее правило фиксированного упорядоченного набора);
- *   - литеральный поиск |ST:hlt / |ST:err для останова;
- *   - копировать hex-содержимое зоны |OUT: наружу (транскод = UART);
- *   - (позже) литеральный splice входных байтов после |IN:.
- * Запрещено: разбор состояния, арифметика над ним, знание о программе.
- * Аудит-инвариант: единственные вызовы, читающие состояние, — это
- * pcre2_substitute, strstr по литеральным маркерам и hex-транскод OUT.
+ * The driver is the motherboard, not the CPU. All it ever does is apply the
+ * substitution rules by the Markov algorithm (the first matching rule of a
+ * fixed, ordered set fires once per pass), copy input and output bytes at the
+ * |IN:/|OUT: zones, and look for the literal |ST:hlt / |ST:err markers to
+ * know when the machine has stopped. It never parses the state string or does
+ * any arithmetic on it, and it knows nothing about the program it runs. The
+ * only calls that read the state are PCRE2 matching and substitution, strstr
+ * on literal markers, and the OUT hex transcode.
  *
- * Сборка: scripts/build_driver.sh (gcc + статический libpcre2-8, LINK_SIZE=4).
+ * Build: scripts/build_driver.sh (gcc + static libpcre2-8, LINK_SIZE=4).
  */
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
@@ -326,9 +324,9 @@ static int splice_apply(Vm *vm, Rule *r) {
     int rc = pcre2_match(r->code, (PCRE2_SPTR)vm->state, vm->len, 0,
                          0, vm->splice_md, vm->mctx);
     if (rc < 0) {
-        /* Громкий трипваер (HONESTY): лимит-ошибки (MATCHLIMIT,
-         * DEPTHLIMIT, JIT_STACKLIMIT...) НЕ равны «не совпало» —
-         * тихая переинтерпретация меняет семантику машины. */
+        /* Лимит-ошибки (MATCHLIMIT, DEPTHLIMIT, JIT_STACKLIMIT...) это НЕ
+         * «не совпало»: если тихо принять их за несовпадение, у машины
+         * поменяется поведение, поэтому падаем громко. */
         if (rc != PCRE2_ERROR_NOMATCH) {
             PCRE2_UCHAR msg[256];
             pcre2_get_error_message(rc, msg, sizeof msg);
@@ -350,9 +348,9 @@ static int splice_apply(Vm *vm, Rule *r) {
      * суммарный сдвиг к этой точке нулевой), не рендерится и не
      * копируется. Даёт O(1) замены с гигантскими ${pre}/${mid}
      * (store_n, dspan/dcol v2.0) и сам отклоняет MF-фазы, где источник
-     * сдвинут на ширину |MF:. Проверка — сравнение СМЕЩЕНИЙ, не
-     * содержимого (honesty); эталон — pure-режим, срабатывание скипа
-     * видно в --rule-stats (skip-счётчики). */
+     * сдвинут на ширину |MF:. Сравниваем СМЕЩЕНИЯ, а не содержимое;
+     * эталон — pure-режим, срабатывание скипа видно в --rule-stats
+     * (skip-счётчики). */
     enum { MAX_SEGS = 168 };
     struct Seg { size_t dst, rb0, len; } segs[MAX_SEGS];
     int n_segs = 0;

@@ -76,7 +76,7 @@ As far as we can tell, nobody had run DOOM, or any other game, or any video at a
 
 ```
 vm/          ISA, assembler, reference emulator, rule generator, state codec
-driver/      the C driver: PCRE2, one loop, honesty contract in comments
+driver/      the C driver: PCRE2, one loop, the rules-only contract in comments
 doom/        doomgeneric port, ELVM toolchain patches, build scripts
 tests/       lockstep suite, driver agreement, goldens
 scripts/     snapshot baking, benchmarks, clip/timelapse builders

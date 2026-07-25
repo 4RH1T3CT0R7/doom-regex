@@ -22,8 +22,8 @@ def main() -> None:
     ap.add_argument("--input", default="")
     ap.add_argument("--wad-mem", type=Path,
                     help="сырой WAD в зону #W начального состояния "
-                         "(+ ячейка размера по WAD_BASE); честность: WAD — "
-                         "часть начального состояния (HONESTY.md)")
+                         "(+ ячейка размера по WAD_BASE); WAD лежит в "
+                         "начальном состоянии как данные")
     args = ap.parse_args()
 
     prog, ram = assemble_full(args.source.read_text(encoding="utf-8"))

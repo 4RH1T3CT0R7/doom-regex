@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 WAD_LAYER = '''\
-/* --- WAD в памяти (замена bfio-host-протокола BFDoom; см. HONESTY.md) ---
+/* --- WAD в памяти (замена bfio-host-протокола BFDoom) ---
  * Раскладка: [RVM_WAD_BASE] = размер (0 => не загружен),
  *            [RVM_WAD_BASE+16 ..] = байты WAD по слову на байт
  *            (выравнивание 16: страницы зоны #W начинаются с

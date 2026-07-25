@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Honesty-аудит драйверов (HONESTY.md п.4).
+"""Аудит драйверов: держатся ли они в рамках «только подстановки + IO».
 
 Драйверу разрешено: цикл подстановок, копирование IO-байтов (IN-сплайс,
 OUT-эхо, CLK), экспорт FB/состояния. Запрещено: арифметика над разобранным
@@ -65,11 +65,11 @@ def main() -> None:
             sys.exit(2)
         all_hits += audit(t)
     if all_hits:
-        print("HONESTY-АУДИТ ПРОВАЛЕН:")
+        print("АУДИТ ПРОВАЛЕН:")
         for h in all_hits:
             print(" ", h)
         sys.exit(1)
-    print("honesty-аудит драйверов: чисто "
+    print("аудит драйверов: чисто "
           f"({', '.join(t.name for t in targets)})")
 
 
