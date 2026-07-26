@@ -5,7 +5,7 @@ This is DOOM running on a computer whose only operation is a global regex find-a
 Below you can watch the machine paint a frame. Green marks the pixels the current substitutions are writing: walls appear column by column, floors fill span by span, and the pauses between strokes are the BSP traversal deciding what to draw next. Each green stroke is one regex replacing a few characters somewhere inside a 96.6 MB string:
 
 <p align="center">
-  <img src="docs/paint_timelapse.gif" width="640" alt="The machine painting a frame - green marks the pixels the substitutions are writing right now">
+  <img src="docs/composite.gif" width="900" alt="The machine painting a frame, with the substitution rules firing beside it - green marks the pixels being written">
 </p>
 
 <br>
