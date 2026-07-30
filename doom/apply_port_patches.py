@@ -276,6 +276,40 @@ def fix_m_menu(t: str) -> str:
     return t
 
 
+def fix_f_wipe(t: str) -> str:
+    """Melt-вайп ванилы кастует экран в short* и делит ширину пополам,
+    обрабатывая по два пикселя за раз. В словной памяти ELVM
+    sizeof(short)==1, поэтому такой melt трогает ровно половину буфера и
+    до строк статус-бара (168..199) не доходит вообще. Фон бара DOOM
+    рисует один раз, ДО вайпа, и потом только виджеты, так что бар
+    оставался чёрным до конца прогона. Переписываем melt побайтово, пара
+    пикселей на столбец сохраняется, то есть и анимация, и итоговый кадр
+    совпадают с ванилой."""
+    t = t.replace("( short*\tarray,", "( byte*\tarray,")
+    t = t.replace("    short*\tdest;", "    byte*\tdest;")
+    t = t.replace("dest = (short*) Z_Malloc", "dest = (byte*) Z_Malloc")
+    t = t.replace(
+        "\t    dest[x*height+y] = array[y*width+x];",
+        "\t    { dest[(x*height+y)*2] = array[(y*width+x)*2];"
+        " dest[(x*height+y)*2+1] = array[(y*width+x)*2+1]; }")
+    t = t.replace("wipe_shittyColMajorXform((short*)wipe_scr_start,",
+                  "wipe_shittyColMajorXform(wipe_scr_start,")
+    t = t.replace("wipe_shittyColMajorXform((short*)wipe_scr_end,",
+                  "wipe_shittyColMajorXform(wipe_scr_end,")
+    t = t.replace("    short*\ts;", "    byte*\ts;")
+    t = t.replace("    short*\td;", "    byte*\td;")
+    t = t.replace("s = &((short *)wipe_scr_end)[i*height+y[i]];",
+                  "s = &wipe_scr_end[(i*height+y[i])*2];")
+    t = t.replace("s = &((short *)wipe_scr_start)[i*height];",
+                  "s = &wipe_scr_start[(i*height)*2];")
+    t = t.replace("d = &((short *)wipe_scr)[y[i]*width+i];",
+                  "d = &wipe_scr[(y[i]*width+i)*2];")
+    t = t.replace("\t\t    d[idx] = *(s++);",
+                  "\t\t    d[idx] = s[0]; d[idx+1] = s[1]; s += 2;")
+    t = t.replace("\t\t    idx += width;", "\t\t    idx += width*2;")
+    return t
+
+
 def fix_st_lib(t: str) -> str:
     # STTMINUS — единственный патч статус-бара мимо конвертера (аудит)
     t = sub_n(t,
@@ -562,6 +596,7 @@ def main() -> None:
     patch_file("p_spec.c", fix_p_spec)
     patch_file("r_bsp.c", fix_r_bsp)
     patch_file("st_lib.c", fix_st_lib)
+    patch_file("f_wipe.c", fix_f_wipe)
     patch_file("r_segs.c", fix_r_segs)
     patch_file("i_video.c", fix_i_video)
     print("готово")

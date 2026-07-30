@@ -26,11 +26,11 @@ if [ "$MODE" = "interactive" ]; then
   # G2f: warp на E1M1, БЕЗ exit — кадры бесконечно, ввод через GETC;
   # FB_BEGIN-маркер для снапшот-точки печатает clip-ветка не нужна:
   # используем RVM_FB_FRAME-маркер без exit (см. doomgeneric_rvm)
-  CFLAGS+=(-DRVM_WARP -DRVM_FB_MARK=3)
+  CFLAGS+=(-DRVM_WARP -DRVM_FB_MARK=45)
 fi
 if [ "$MODE" = "scout" ]; then
   # разведка окна клипа на tier-1: дамп каждого 20-го кадра до 500
-  CFLAGS+=(-DRVM_TIMEDEMO -DRVM_DUMP_EVERY=20 -DRVM_DUMP_LAST=500)
+  CFLAGS+=(-DRVM_WARP -DRVM_DUMP_EVERY=5 -DRVM_DUMP_LAST=60)
 fi
 if [ "$MODE" = "scoutall" ]; then
   # полный оракул клипа: дамп КАЖДОГО кадра до 259
