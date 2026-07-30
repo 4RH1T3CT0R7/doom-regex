@@ -49,7 +49,11 @@ The four orders of magnitude between the last two rows are a story of their own.
 
 ## Try it
 
-**[Download the demo](https://github.com/4RH1T3CT0R7/doom-regex/releases/latest)**, unzip it, and double-click `doomregex_demo.exe` (Windows). It launches the real machine on the real ruleset and shows the frame being rendered live, next to a substitution feed that tells you which rule fired, what it consumed, and what it wrote. The demo is genuinely playable, too: WASD or the arrow keys move, Ctrl fires, Space opens doors, and every keypress lands in `input.bin`, where the machine picks it up with its GETC instruction. Since a frame takes a few minutes to compute, the experience is closer to correspondence chess with a shotgun than to a twitch shooter.
+**[Download the demo](https://github.com/4RH1T3CT0R7/doom-regex/releases/latest)**, unzip it, and double-click `doomregex_demo.exe` (Windows). It launches the real machine on the real ruleset and shows the frame being rendered live, next to a substitution feed that tells you which rule fired, what it consumed, and what it wrote. The demo is genuinely playable, too: WASD or the arrow keys move, Ctrl fires, Space opens doors, and every keypress lands in `input.bin`, where the machine picks it up with its GETC instruction. Since a frame takes about six minutes to compute, the experience is closer to correspondence chess with a shotgun than to a twitch shooter.
+
+<p align="center">
+  <img src="docs/demo_window.png" width="900" alt="the viewer: a frame being painted, next to the feed of rules that fired">
+</p>
 
 Or build everything yourself:
 

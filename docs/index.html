@@ -188,6 +188,16 @@
   <p data-i="p_tl"></p>
   <div class="tl"><img src="e1m1_frame.png" alt="the finished frame"></div>
 
+  <h2 data-i="h_demo"></h2>
+  <p data-i="p_demo"></p>
+  <div class="shot">
+    <img src="demo_window.png" alt="the downloadable viewer: a frame being painted, next to the feed of rules that fired">
+    <div class="caption" data-i="demo_cap"></div>
+  </div>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/4RH1T3CT0R7/doom-regex/releases/latest" data-i="btn_demo2"></a>
+  </div>
+
   <footer>
     <a href="https://github.com/4RH1T3CT0R7/doom-regex">github.com/4RH1T3CT0R7/doom-regex</a>
   </footer>
@@ -216,7 +226,7 @@ const I18N = {
     p_clip: "These are frames 160 through 259 of the built-in timedemo: the player grabs the armor, picks up the shotgun, and the demons attack. Getting there took 1 036 000 140 substitutions, and every one of the 100 frames is byte-identical to the native build. Drag the slider to scrub.",
     b_play: "Play",
     b_pause: "Pause",
-    clip_note: "12 fps playback | computed at about 3 minutes per frame on five machines in parallel",
+    clip_note: "12 fps playback | computed at about five minutes per frame, five frames at a time on separate cores",
     h_micro: "Watch the machine think",
     p_micro: "These are 28 real recorded substitutions, the ones that execute the first instructions of a small test program (MOVI, ADD, a store into the framebuffer, MUL). Red marks the text a rule replaced and green marks what it wrote instead. The full string is 621 066 characters long, and you are looking at roughly the first hundred of them.",
     lbl_before: "before",
@@ -237,6 +247,10 @@ const I18N = {
     toy_r3: "all 9s -> wrap around to zeros",
     toy_matched: "rule matched: ",
     toy_halted: "no rule matches: fixed point",
+    h_demo: "Run it yourself",
+    p_demo: "The download is the real machine: the same rvm.exe, the same 544 rules, the same 96.6 MB state string. The viewer starts it, then shows the frame filling in while the feed on the right names the rule that just fired and shows the exact characters it changed in the state. The RULES tab keeps a running tally of which rules do the heavy lifting, and the MAP tab shows where in the string the machine is working right now. You can also play: the keys land in a file, and the machine reads them the same way it reads anything else.",
+    demo_cap: "The viewer near the end of a frame: 12.7 million substitutions in, 98 percent of the picture painted, and the ceiling still filling in.",
+    btn_demo2: "Download for Windows",
     h_tl: "The finished frame",
     p_tl: "13 994 067 substitutions later you get frame 60 of the timedemo, and its SHA-256 matches the natively compiled DOOM exactly; not a single character of the frame was produced by anything other than find-and-replace.",
     // microscope rule explanations
@@ -269,7 +283,7 @@ const I18N = {
     p_clip: "Это кадры со 160-го по 259-й встроенного таймдемо: игрок подбирает броню, берёт дробовик, и на него нападают демоны. На всё ушло 1 036 000 140 подстановок, и каждый из ста кадров совпал с нативным эталон байт в байт. Тяните ползунок, чтобы промотать клип в любое место.",
     b_play: "Пуск",
     b_pause: "Пауза",
-    clip_note: "12 fps | около трёх минут на кадр, пять машин параллельно",
+    clip_note: "12 fps | около пяти минут на кадр, по пять кадров одновременно на разных ядрах",
     h_micro: "Посмотреть, как машина думает",
     p_micro: "Перед вами 28 настоящих записанных подстановок: первые инструкции маленькой тестовой программы, где есть MOVI, ADD, запись во фреймбуфер и MUL. Красным подсвечено то, что правило съело, а зелёным то, что оно записало. Сама строка занимает 621 066 символов, здесь показана примерно первая сотня.",
     lbl_before: "до",
@@ -290,6 +304,10 @@ const I18N = {
     toy_r3: "если счётчик состоит из одних девяток, он обнуляется",
     toy_matched: "сработало правило: ",
     toy_halted: "ни одно правило не совпало: неподвижная точка",
+    h_demo: "Запустить у себя",
+    p_demo: "В архиве лежит та же самая машина: тот же rvm.exe, те же 544 правила и та же строка состояния на 96.6 МБ. Вьювер запускает её и показывает, как заполняется кадр, а лента справа называет только что сработавшее правило и показывает, какие именно символы состояния оно изменило. Вкладка RULES ведёт счёт, какие правила делают основную работу, вкладка MAP показывает, в каком месте строки машина сейчас работает. Можно и играть: нажатия попадают в файл, а машина читает его так же, как читает всё остальное.",
+    demo_cap: "Вьювер на исходе кадра: 12,7 миллиона подстановок позади, картинка закрашена на 98 процентов, потолок ещё дорисовывается.",
+    btn_demo2: "Скачать для Windows",
     h_tl: "Готовый кадр",
     p_tl: "Спустя 13 994 067 подстановок получается кадр 60 таймдемо, и его SHA-256 совпадает с хешем кадра нативно скомпилированного DOOM. Ни один символ этого кадра не был получен ничем, кроме поиска с заменой.",
     ex_movi: "MOVI: правило совпало с опкодом 02 в кэше инструкции, по обратной ссылке на имя нашло слот регистра-приёмника и записало туда непосредственное значение. Дальше фаза переключается в 1, и машина уходит увеличивать PC.",

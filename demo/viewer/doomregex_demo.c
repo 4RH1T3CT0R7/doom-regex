@@ -296,7 +296,14 @@ static void diff_line(HDC dc, int x, int y, int maxw, const char *label,
 
 static void draw_tab_feed(HDC dc, RECT rc) {
     int rows = (rc.bottom - rc.top - 6) / 20;
-    if (rows < 1) return;
+    if (rows < 2) return;
+    /* лента показывает одну подстановку из каждых LIVE_EVERY: снимать
+     * состояние на каждой подстановке дорого и роняет скорость машины */
+    text_clip(dc, rc.left, rc.top + 4, rc.right - rc.left,
+              "     pass  rule that fired         where it hit the string"
+              "   (one sample every 1200 substitutions)", C_DIM);
+    rc.top += 24;
+    rows--;
     if (g_feed_scroll > g_feed_len - rows) g_feed_scroll = g_feed_len - rows;
     if (g_feed_scroll < 0) g_feed_scroll = 0;
     for (int i = 0; i < rows; i++) {
@@ -305,7 +312,7 @@ static void draw_tab_feed(HDC dc, RECT rc) {
         FeedRec *r = &g_feed[(g_feed_head - 1 - i - g_feed_scroll
                               + 2 * FEED_N) % FEED_N];
         char line[128];
-        snprintf(line, sizeof line, "%10llu  %-28s @ %lld",
+        snprintf(line, sizeof line, "%10llu  %-24s %12lld",
                  r->pass, r->rule, r->pos);
         text_clip(dc, rc.left, rc.top + 4 + i * 20,
                   rc.right - rc.left, line,
@@ -634,7 +641,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE prev, LPSTR cmd, int show) {
     snprintf(eng, sizeof eng,
              "\"%s\\rvm.exe\" --rules \"%s\\rules_rvm.rgxset\" "
              "--state \"%s\" --live-dir \"%s\" "
-             "--live-every 15 --input-file \"%s\" --io-every 2000 "
+             "--live-every 1200 --input-file \"%s\" --io-every 2000 "
              "--io-journal \"%s\\input.journal\" --quiet",
              g_dir, g_dir, g_snap, live, inp, g_dir);
     STARTUPINFOA si = { sizeof si };
