@@ -125,7 +125,7 @@
     <div class="stat"><b>13 994 067</b><span data-i="st_subs"></span></div>
     <div class="stat"><b>544</b><span data-i="st_rules"></span></div>
     <div class="stat"><b>96.6 MB</b><span data-i="st_state"></span></div>
-    <div class="stat"><b>~80 000/s</b><span data-i="st_speed"></span></div>
+    <div class="stat"><b>~50 000/s</b><span data-i="st_speed"></span></div>
   </div>
 
   <h2 data-i="h_what"></h2>
@@ -207,13 +207,13 @@ const I18N = {
     st_subs: "substitutions to render this frame",
     st_rules: "rewrite rules, fixed and hashed before the run",
     st_state: "machine state: a single string",
-    st_speed: "substitutions per second (PCRE2 with JIT; clip run, per core)",
+    st_speed: "substitutions per second on one core (PCRE2 with JIT)",
     h_what: "What is going on here",
     p_what1: "The whole machine is one long string of 96.6 MB. Registers, RAM, the framebuffer, the DOOM engine compiled to a custom instruction set, even the WAD file: all of it lives in that string as plain text. A driver applies a fixed, ordered list of find-and-replace rules to it; whichever rule matches first fires exactly once, and that counts as one step. No other computation is hiding anywhere: no interpreter, no host-side arithmetic. Take the rules away and all that is left is an ordinary text file.",
     p_what2: "This works because iterated string rewriting is Turing-complete: it is a Markov algorithm, one of the classic 1950s models of computation. The 544 rules implement a small 32-bit CPU whose adder is a 512-entry lookup table with the carry threaded through capture groups, whose memory access jumps an exact number of characters assembled from the digits of the address, and whose instruction fetch lands on the current opcode the same way, guided by the program counter. DOOM itself is compiled to that CPU with 8cc and ELVM on top of the doomgeneric port, in BFDoom's footsteps.",
     p_what3: "Every step is verified. A reference emulator written in Python executes the same instruction set, and after every single substitution the string has to match the emulator's encoded state byte for byte. On top of that, the SHA-256 of the rendered frame matches a natively compiled DOOM, so three independent implementations keep arriving at the same bytes.",
     h_clip: "A hundred frames of actual gameplay",
-    p_clip: "These are frames 160 through 259 of the built-in timedemo: the player grabs the armor, picks up the shotgun, and the demons attack. Getting there took about 1.25 billion substitutions, and every one of the 100 frames is byte-identical to the native build. Drag the slider to scrub.",
+    p_clip: "These are frames 160 through 259 of the built-in timedemo: the player grabs the armor, picks up the shotgun, and the demons attack. Getting there took 1 036 000 140 substitutions, and every one of the 100 frames is byte-identical to the native build. Drag the slider to scrub.",
     b_play: "Play",
     b_pause: "Pause",
     clip_note: "12 fps playback | computed at about 3 minutes per frame on five machines in parallel",
@@ -260,13 +260,13 @@ const I18N = {
     st_subs: "подстановок ушло на этот кадр",
     st_rules: "правил замены, зафиксированных и захешированных до запуска",
     st_state: "состояние машины: одна сплошная строка",
-    st_speed: "подстановок в секунду на ядро (PCRE2 с JIT, замер на клипе)",
+    st_speed: "подстановок в секунду на одном ядре (PCRE2 с JIT)",
     h_what: "Что здесь происходит",
     p_what1: "Вся машина живёт в одной длинной строке. Регистры, память, фреймбуфер и сам движок DOOM, скомпилированный в самодельную систему команд, лежат там обычным текстом. Драйвер применяет к строке фиксированный упорядоченный список правил поиска с заменой: на каждом шаге срабатывает первое совпавшее правило, и срабатывает ровно один раз. Больше в системе не считается ничего, на стороне хоста нет ни интерпретатора, ни арифметики, и если удалить все правила, от машины останется просто текстовый файл.",
     p_what2: "Работает это потому, что итерированная замена строк Тьюринг-полна: по сути перед нами алгоритм Маркова, одна из классических моделей вычислений пятидесятых годов. Правила набора реализуют небольшой 32-битный процессор, где сложение идёт через таблицу-сумматор на 512 записей, перенос протаскивается группами захвата, а выборка инструкции устроена как буквальный прыжок на точное число символов вглубь секции программы, посчитанное из счётчика команд. DOOM скомпилирован под этот процессор связкой 8cc и ELVM.",
     p_what3: "Каждый шаг проверяется. Референсный эмулятор на Python исполняет ту же систему команд, и после каждой подстановки строка обязана байт в байт совпасть с его закодированным состоянием. SHA-256 готового кадра при этом сходится с кадром нативно скомпилированного DOOM, так что ответ подтверждают два независимых эталон, и оба говорят одно и то же.",
     h_clip: "Сто кадров настоящей игры",
-    p_clip: "Это кадры со 160-го по 259-й встроенного таймдемо: игрок подбирает броню, берёт дробовик, и на него нападают демоны. На всё ушло около 1,25 миллиарда подстановок, и каждый из ста кадров совпал с нативным эталон байт в байт. Тяните ползунок, чтобы промотать клип в любое место.",
+    p_clip: "Это кадры со 160-го по 259-й встроенного таймдемо: игрок подбирает броню, берёт дробовик, и на него нападают демоны. На всё ушло 1 036 000 140 подстановок, и каждый из ста кадров совпал с нативным эталон байт в байт. Тяните ползунок, чтобы промотать клип в любое место.",
     b_play: "Пуск",
     b_pause: "Пауза",
     clip_note: "12 fps | около трёх минут на кадр, пять машин параллельно",

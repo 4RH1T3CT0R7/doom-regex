@@ -16,7 +16,7 @@ Below you can watch the machine paint a frame. Green marks the pixels the curren
   <a href="https://4rh1t3ct0r7.github.io/doom-regex/"><img src="https://img.shields.io/badge/%E2%96%B6%20%20Interactive%20site-c23b22?style=for-the-badge" alt="Open the interactive site"></a>
 </p>
 
-A single frame of E1M1 (frame 60 of the timedemo) takes **13 994 067 substitutions** and comes out byte-identical to the same frame rendered by natively compiled DOOM; the SHA-256 hashes match. One frame could always be a fluke, so here are a hundred of them: frames 160 through 259 of the timedemo, in which the player grabs the armor and the shotgun while demons close in. Computing the clip took about 1.25 billion substitutions, and every one of the hundred frames matches the native build byte for byte:
+A single frame of E1M1 (frame 60 of the timedemo) takes **13 994 067 substitutions** and comes out byte-identical to the same frame rendered by natively compiled DOOM; the SHA-256 hashes match. One frame could always be a fluke, so here are a hundred of them: frames 160 through 259 of the timedemo, in which the player grabs the armor and the shotgun while demons close in. Computing the clip took 1 036 000 140 substitutions, and every one of the hundred frames matches the native build byte for byte:
 
 <p align="center">
   <img src="docs/doom_regex_clip.gif" width="640" alt="100 frames of the timedemo computed by substitutions">
@@ -41,11 +41,11 @@ None of it is taken on faith. A reference emulator runs the same instruction set
 | rewrite rules | 544 of them, fixed and SHA-256-hashed before the run starts |
 | machine state | a single string of 96.6 MB |
 | one frame of E1M1 | 13 994 067 substitutions |
-| the 100-frame clip | about 1.25 billion substitutions |
-| speed | around 80 000 substitutions per second per core (PCRE2 with JIT, measured over the clip run) |
+| the 100-frame clip | 1 036 000 140 substitutions |
+| speed | about 50 000 substitutions per second on one core, so a frame lands in a little under five minutes (PCRE2 with JIT, measured over that same frame run) |
 | first working build | 7 substitutions per second; at that pace the last 295 000 substitutions of the frame alone took 12 hours |
 
-The four orders of magnitude between the last two rows are a story of their own. The digit-tree fetch replaced a linear scan of the program zone, dotall jumps let the JIT advance a pointer rather than hunt for newlines, a flat memory zone retired the old sparse cell scan, and an identity-skip splice means that the long prefix a substitution keeps verbatim is never copied at all. With all of that in place the production runs spread the work across five machines in parallel, and a frame comes out in roughly three minutes.
+The four orders of magnitude between the last two rows are a story of their own. The digit-tree fetch replaced a linear scan of the program zone, dotall jumps let the JIT advance a pointer rather than hunt for newlines, a flat memory zone retired the old sparse cell scan, and an identity-skip splice means that the long prefix a substitution keeps verbatim is never copied at all. With all of that in place a frame comes out in about five minutes, and the production runs render five of them side by side on separate cores.
 
 ## Try it
 

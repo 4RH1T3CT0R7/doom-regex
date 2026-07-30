@@ -16,6 +16,7 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <windowsx.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,8 +41,10 @@ static long long g_pos = -1;       /* окно диффа: позиция вну
 static long long g_abs = -1;       /* абсолютная позиция замены в строке */
 static int g_alive = 0;
 static int g_paused = 0;
+static int g_painted = 0;          /* % закрашенных пикселей вьюпорта */
 static int g_tab = 0;              /* 0 feed, 1 rules, 2 map */
 static int g_help = 0;
+static RECT g_tab_rc[3];           /* прямоугольники вкладок для клика мышью */
 static char g_dir[MAX_PATH];
 static char g_lastkey[48] = "";
 static int g_done = 0;             /* машина дошла до ST:hlt */
@@ -113,10 +116,14 @@ static void poll_fb(void) {
         /* ячейка "[oooo:vv]" = 9 символов (формат v2.0) */
         size_t cells = (n - (size_t)(z - t)) / 9;
         if (cells > FB_W * FB_H) cells = FB_W * FB_H;
+        int nz = 0;
+        int view = FB_W * 168;             /* 3D-вьюпорт без статус-бара */
         for (size_t i = 0; i < cells; i++) {
             const char *c = z + i * 9;
             g_frame[i] = (unsigned char)(hex1(c[6]) * 16 + hex1(c[7]));
+            if ((int)i < view && g_frame[i]) nz++;
         }
+        g_painted = nz * 100 / view;
         for (int i = 0; i < FB_W * FB_H; i++) {
             const unsigned char *p = PAL + g_frame[i] * 3;
             g_pix[i] = (unsigned)p[2] | ((unsigned)p[1] << 8)
@@ -362,17 +369,26 @@ static void draw_tab_map(HDC dc, RECT rc) {
         FillRect(dc, &m, hb);
         DeleteObject(hb);
     }
-    /* подписи и текущая зона */
+    /* текущая зона */
     const char *cur = "?";
+    for (int i = 0; i < NZONES; i++)
+        if (g_abs >= ZONES[i].start) cur = ZONES[i].name;
+
+    /* легенда: ровный ряд цветных квадратиков с именами, без наложения */
+    int lx = rc.left, ly = y0 + h + 14;
     for (int i = 0; i < NZONES; i++) {
-        long long a = ZONES[i].start;
-        if (g_abs >= a) cur = ZONES[i].name;
-        int xa = (int)(rc.left + (long long)w * a / (long long)g_len);
-        text_clip(dc, xa + 2, y0 + h + 10, 110, ZONES[i].name, ZONES[i].c);
+        RECT sw = {lx, ly + 2, lx + 12, ly + 14};
+        HBRUSH hb = CreateSolidBrush(ZONES[i].c);
+        FillRect(dc, &sw, hb);
+        DeleteObject(hb);
+        SetTextColor(dc, C_DIM);
+        TextOutA(dc, lx + 18, ly, ZONES[i].name, (int)strlen(ZONES[i].name));
+        lx += 18 + (int)strlen(ZONES[i].name) * g_chw + 22;
+        if (lx > rc.right - 90) { lx = rc.left; ly += 22; }
     }
     char line[160];
     snprintf(line, sizeof line,
-             "the whole %llu-char string; last write at %lld (%s)",
+             "the whole %llu-char string; last write at %lld (in %s)",
              g_len, g_abs, cur);
     text_clip(dc, rc.left, rc.top + 2, w, line, C_DIM);
 }
@@ -444,8 +460,9 @@ static void paint(HWND w) {
     TextOutA(mem, 16, y,
              g_done ? "DONE   " :
              g_paused ? "PAUSED " : (g_alive ? "RUNNING" : "WAITING"), 7);
-    snprintf(line, sizeof line, "pass %llu | %.0f/s | len %llu",
-             g_pass, g_pps, g_len);
+    snprintf(line, sizeof line,
+             "pass %llu | %.0f/s | frame painted %d%%",
+             g_pass, g_pps, g_painted);
     text_clip(mem, 100, y, maxw - 300, line, C_AMBER);
     draw_spark(mem, rc.right - 176, y - 2, 160, 22);
 
@@ -461,22 +478,22 @@ static void paint(HWND w) {
     diff_line(mem, 16, y, maxw, "after |", g_after, g_pos, C_GREEN);
     y += 26;
 
-    /* вкладки */
+    /* вкладки (кликаются мышью — прямоугольники в g_tab_rc) */
     const char *tabs[3] = {"FEED", "RULES", "MAP"};
     int tx = 16;
     for (int i = 0; i < 3; i++) {
         RECT tb = {tx, y, tx + 76, y + 22};
-        if (i == g_tab) {
-            HBRUSH hb = CreateSolidBrush(C_TAB);
-            FillRect(mem, &tb, hb);
-            DeleteObject(hb);
-        }
+        g_tab_rc[i] = tb;
+        HBRUSH hb = CreateSolidBrush(i == g_tab ? C_TAB : C_BG);
+        FillRect(mem, &tb, hb);
+        DeleteObject(hb);
+        FrameRect(mem, &tb, (HBRUSH)GetStockObject(DKGRAY_BRUSH));
         SetTextColor(mem, i == g_tab ? C_AMBER : C_DIM);
         TextOutA(mem, tx + 14, y + 2, tabs[i], (int)strlen(tabs[i]));
         tx += 84;
     }
     text_clip(mem, tx + 10, y + 2, maxw - tx,
-              "Tab switch | wheel scroll | P pause | H help", C_DIM);
+              "click or Tab | wheel scroll | P pause | H help", C_DIM);
     y += 28;
 
     RECT body = {16, y, rc.right - 16, rc.bottom - 24};
@@ -538,6 +555,14 @@ static LRESULT CALLBACK wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     case WM_KEYUP: {
         unsigned char k = vk_to_doom(wp);
         if (k) send_key(0, k);
+        return 0;
+    }
+    case WM_LBUTTONDOWN: {
+        POINT p = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+        for (int i = 0; i < 3; i++)
+            if (PtInRect(&g_tab_rc[i], p)) { g_tab = i; break; }
+        SetFocus(w);                       /* вернуть фокус клавиатуре */
+        InvalidateRect(w, NULL, FALSE);
         return 0;
     }
     case WM_MOUSEWHEEL:
